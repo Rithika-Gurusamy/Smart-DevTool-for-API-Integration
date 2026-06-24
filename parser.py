@@ -2,6 +2,11 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse
+import os
+import time
+import datetime
+import uuid
+
 
 def fetch_docs(url: str) -> dict:
     """
@@ -93,3 +98,52 @@ def clean_html(html_content: str) -> dict:
         "text": text,
         "endpoints": unique_endpoints[:30]  # Grab first 30 endpoints
     }
+
+def save_uploaded_file(uploaded_file, upload_dir="temp_uploads") -> dict:
+    """
+    Saves a Streamlit UploadedFile object to a temporary directory in the workspace.
+    Returns a standardized document metadata dictionary.
+    """
+    if not os.path.exists(upload_dir):
+        os.makedirs(upload_dir, exist_ok=True)
+        
+    # Generate a unique file name to avoid collisions
+    orig_name = uploaded_file.name
+    base, ext = os.path.splitext(orig_name)
+    # Clean the base name to keep it alphanumeric/simple
+    clean_base = "".join(c for c in base if c.isalnum() or c in ('-', '_')).rstrip()
+    unique_name = f"{int(time.time())}_{uuid.uuid4().hex[:8]}_{clean_base}{ext}"
+    
+    file_path = os.path.join(upload_dir, unique_name)
+    abs_file_path = os.path.abspath(file_path)
+    
+    # Save the file content
+    with open(abs_file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+        
+    # Build standardized document metadata
+    return {
+        "source_type": "file",
+        "file_name": orig_name,
+        "file_extension": ext,
+        "file_path": abs_file_path,
+        "upload_timestamp": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+
+def extract_text_from_file(file_path: str, file_extension: str) -> str:
+    """
+    Reads plain-text file formats (markdown, text, json, yaml) and returns their content.
+    Returns a placeholder for binary/non-text formats like pdf.
+    """
+    ext = file_extension.lower()
+    if ext in ['.txt', '.md', '.json', '.yaml', '.yml']:
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        except Exception as e:
+            return f"Error reading file {os.path.basename(file_path)}: {str(e)}"
+    elif ext == '.pdf':
+        return f"[PDF document: {os.path.basename(file_path)}. Content extraction from PDF is a future enhancement and not yet supported in this commit.]"
+    else:
+        return f"[Unsupported file format: {ext}. Future versions will handle this format.]"
+

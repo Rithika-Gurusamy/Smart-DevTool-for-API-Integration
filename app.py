@@ -1,7 +1,8 @@
 import streamlit as st
 import json
 import base64
-from parser import fetch_docs
+import os
+from parser import fetch_docs, save_uploaded_file, extract_text_from_file
 from analyzer import analyze_api_docs
 from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram
 
@@ -140,12 +141,15 @@ if "use_case_input" not in st.session_state:
     st.session_state["use_case_input"] = ""
 if "lang_input" not in st.session_state:
     st.session_state["lang_input"] = "Python"
+if "doc_source_selection" not in st.session_state:
+    st.session_state["doc_source_selection"] = "Documentation URL"
 
 # Preset triggers
 def select_preset(url, use_case, lang):
     st.session_state["url_input"] = url
     st.session_state["use_case_input"] = use_case
     st.session_state["lang_input"] = lang
+    st.session_state["doc_source_selection"] = "Documentation URL"
 
 # Sidebar controls
 st.sidebar.markdown("### 🛠️ Controller")
@@ -192,11 +196,43 @@ col_form, col_meta = st.columns([2, 1])
 
 with col_form:
     st.markdown("### 📋 Configuration")
-    url_input = st.text_input(
-        "API Documentation URL:", 
-        value=st.session_state["url_input"], 
-        placeholder="e.g. https://api.stripe.com/docs"
+    doc_source = st.radio(
+        "Select Documentation Source:",
+        ["Documentation URL", "Upload Documentation File"],
+        index=["Documentation URL", "Upload Documentation File"].index(st.session_state["doc_source_selection"]),
+        horizontal=True
     )
+    
+    # Store doc source in session state to handle page refreshes
+    st.session_state["doc_source_selection"] = doc_source
+    
+    if doc_source == "Documentation URL":
+        url_input = st.text_input(
+            "API Documentation URL:", 
+            value=st.session_state["url_input"], 
+            placeholder="e.g. https://api.stripe.com/docs"
+        )
+        uploaded_file = None
+    else:
+        uploaded_file = st.file_uploader(
+            "Upload API Documentation File:",
+            type=['pdf', 'md', 'txt', 'json', 'yaml', 'yml'],
+            help="Supported formats: PDF, MD, TXT, JSON, YAML, YML. Max size: 10 MB."
+        )
+        url_input = ""
+        
+        # UI Validation & Details
+        if uploaded_file is not None:
+            file_size_mb = uploaded_file.size / (1024 * 1024)
+            if file_size_mb > 10.0:
+                st.error(f"❌ File too large: **{uploaded_file.name}** ({file_size_mb:.2f} MB). Max size allowed is 10 MB.")
+            else:
+                _, ext = os.path.splitext(uploaded_file.name)
+                if ext.lower() not in ['.pdf', '.md', '.txt', '.json', '.yaml', '.yml']:
+                    st.error(f"❌ Unsupported file format: **{ext}**.")
+                else:
+                    st.success(f"✔️ Upload success! File: **{uploaded_file.name}** | Type: **{ext.upper()}** ({uploaded_file.type}) | Size: **{file_size_mb:.2f} MB**")
+                    
     use_case_input = st.text_area(
         "Describe your Use Case:", 
         value=st.session_state["use_case_input"],
@@ -217,19 +253,62 @@ with col_meta:
 
 # Run Generation Process
 if generate_btn:
-    if not url_input.strip() and not use_case_input.strip():
-        st.warning("Please provide a Documentation URL or specify a Use Case.")
-    else:
-        # Step 1: Documentation Fetching status
+    is_valid = True
+    
+    # In-depth validation before proceeding
+    if doc_source == "Documentation URL":
+        if not url_input.strip():
+            st.warning("⚠️ Please provide a Documentation URL.")
+            is_valid = False
+    else:  # File Upload
+        if uploaded_file is None:
+            st.warning("⚠️ Please upload an API Documentation File.")
+            is_valid = False
+        else:
+            file_size_mb = uploaded_file.size / (1024 * 1024)
+            if file_size_mb > 10.0:
+                st.error(f"❌ File size exceeds 10 MB limit ({file_size_mb:.2f} MB). Please upload a smaller file.")
+                is_valid = False
+            else:
+                _, ext = os.path.splitext(uploaded_file.name)
+                if ext.lower() not in ['.pdf', '.md', '.txt', '.json', '.yaml', '.yml']:
+                    st.error(f"❌ Unsupported file extension: {ext}.")
+                    is_valid = False
+                    
+    if is_valid and not use_case_input.strip():
+        st.warning("⚠️ Please describe your Use Case.")
+        is_valid = False
+        
+    if is_valid:
+        # Step 1: Documentation Ingestion status
         with st.status("🛠️ Processing API Package...", expanded=True) as status:
-            status.update(label="Scraping HTML Documentation URL...", state="running")
-            doc_result = fetch_docs(url_input)
+            if doc_source == "Documentation URL":
+                status.update(label="Scraping HTML Documentation URL...", state="running")
+                doc_result = fetch_docs(url_input)
+                scraped_text = doc_result.get("text", "")
+                source_url = url_input
+                
+                # Standardized document input object for URL
+                doc_input_metadata = {
+                    "source_type": "url",
+                    "url": url_input
+                }
+            else:
+                status.update(label="Ingesting uploaded documentation file...", state="running")
+                # Save the file temporarily
+                doc_input_metadata = save_uploaded_file(uploaded_file)
+                # Extract text
+                scraped_text = extract_text_from_file(doc_input_metadata["file_path"], doc_input_metadata["file_extension"])
+                source_url = "" # No URL source
+                
+            # Log/display standard metadata object to verify its creation
+            st.write("📄 Standardized Document Input Object:", doc_input_metadata)
             
             # Step 2: Analyzer
             status.update(label="Analyzing API details and mapping endpoints...", state="running")
             analysis = analyze_api_docs(
-                url=url_input,
-                scraped_text=doc_result.get("text", ""),
+                url=source_url,
+                scraped_text=scraped_text,
                 use_case=use_case_input,
                 language=lang_input
             )
