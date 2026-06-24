@@ -5,6 +5,7 @@ import os
 from parser import fetch_docs, save_uploaded_file, extract_text_from_file
 from analyzer import analyze_api_docs
 from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram
+from spec_parser import detect_and_parse_spec, SpecParserError
 
 # Page configuration
 st.set_page_config(
@@ -253,6 +254,8 @@ with col_meta:
 
 # Run Generation Process
 if generate_btn:
+    if "parsed_spec" in st.session_state:
+        del st.session_state["parsed_spec"]
     is_valid = True
     
     # In-depth validation before proceeding
@@ -298,11 +301,27 @@ if generate_btn:
                 # Save the file temporarily
                 doc_input_metadata = save_uploaded_file(uploaded_file)
                 # Extract text
-                scraped_text = extract_text_from_file(doc_input_metadata["file_path"], doc_input_metadata["file_extension"])
+                raw_text = extract_text_from_file(doc_input_metadata["file_path"], doc_input_metadata["file_extension"])
+                
+                # Attempt to parse as OpenAPI/Swagger
+                try:
+                    parsed_spec = detect_and_parse_spec(raw_text)
+                    st.session_state["parsed_spec"] = parsed_spec
+                    scraped_text = json.dumps(parsed_spec, indent=2)
+                except SpecParserError as e:
+                    scraped_text = raw_text # fallback to raw text if not a valid spec
+                    
                 source_url = "" # No URL source
                 
             # Log/display standard metadata object to verify its creation
             st.write("📄 Standardized Document Input Object:", doc_input_metadata)
+            
+            if "parsed_spec" in st.session_state:
+                ps = st.session_state["parsed_spec"]
+                st.markdown("### 🔍 API Specification Detected")
+                st.info(f"**Type:** {ps.get('spec_type', '').upper()} | **Version:** {ps.get('spec_version', '')}")
+                st.write(f"- **Endpoints Found:** {len(ps.get('endpoints', []))}")
+                st.write(f"- **Auth Schemes Defined:** {len(ps.get('authentication', []))}")
             
             # Step 2: Analyzer
             status.update(label="Analyzing API details and mapping endpoints...", state="running")
