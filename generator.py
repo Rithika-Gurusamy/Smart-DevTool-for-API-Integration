@@ -21,50 +21,11 @@ def generate_wrapper(api_metadata: dict, language: str, use_case: str) -> str:
     """
     Generates a complete client wrapper class for the target language.
     """
-    api_name = api_metadata.get("api_name", "API")
-    api_name_clean = re.sub(r'\W+', '', api_name)
-    auth_info = api_metadata.get("auth_method", {})
-    endpoints = api_metadata.get("endpoints", [])
+    from generators import get_generator
     
-    endpoints_str = "\n".join([f"- {ep['method']} {ep['path']} : {ep['description']}" for ep in endpoints])
-    
-    if not api_key or not HAS_GEMINI:
-        return get_mock_wrapper(api_name_clean, auth_info, endpoints, language)
-
-    prompt = f"""
-You are an expert software developer. Generate a production-ready, clean, and well-documented client wrapper class.
-API Name: {api_name}
-Target Programming Language: {language}
-Target Use Case: {use_case}
-Authentication Method: {auth_info.get('type', 'API Key')} ({auth_info.get('description', '')})
-Endpoints to implement in the wrapper:
-{endpoints_str}
-
-Instructions:
-1. Provide a class or module structure named '{api_name_clean}Client'.
-2. Properly implement methods for each endpoint.
-3. Handle authentication natively (e.g. constructor configuration of the auth token/key, adding correct HTTP headers to requests).
-4. Include helpful inline documentation, comments, and docstrings explaining what parameters are needed.
-5. Use standard/idiomatic HTTP libraries for the language (e.g. 'requests' for Python, 'axios' or native 'fetch' for JavaScript/TypeScript, 'net/http' for Go, 'HttpClient' for C#, native HTTP libraries for Java).
-6. Output ONLY the raw source code. Do not include markdown code ticks (like ```python or ```) or any explanations before or after.
-"""
-    try:
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        code = response.text.strip()
-        
-        # Clean any accidental markdown wrap
-        if code.startswith("```"):
-            lines = code.split("\n")
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].strip() == "```":
-                lines = lines[:-1]
-            code = "\n".join(lines).strip()
-        return code
-    except Exception as e:
-        print(f"Failed to generate wrapper code with Gemini ({str(e)}). Falling back to mock template.")
-        return get_mock_wrapper(api_name_clean, auth_info, endpoints, language)
+    # Instantiate the appropriate generator using the project API key setting
+    gen = get_generator(language, api_key=api_key)
+    return gen.generate(api_metadata, use_case)
 
 def generate_postman_collection(api_metadata: dict) -> str:
     """

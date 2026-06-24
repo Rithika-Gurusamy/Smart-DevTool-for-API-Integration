@@ -402,6 +402,57 @@ if st.session_state.get("result_ready"):
         st.markdown("### Client Wrapper Class")
         st.markdown(f"Generated clean client code implementing requested endpoints in `{language}`.")
         
+        # SDK Summary Panel
+        st.markdown("#### 📊 SDK Summary Panel")
+        from generators.base import BaseSDKGenerator
+        base_gen = BaseSDKGenerator()
+        class_name = base_gen.clean_class_name(analysis.get("api_name", "API"))
+        
+        primary_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Primary"]
+        supporting_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Supporting"]
+        num_methods = len(primary_eps) + len(supporting_eps)
+        auth_type = analysis.get("auth_method", {}).get("type", "API Key")
+        
+        sum_col1, sum_col2, sum_col3 = st.columns(3)
+        with sum_col1:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Client Class Name</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{class_name}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with sum_col2:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Generated Methods</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{num_methods} Methods</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with sum_col3:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Authentication</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{auth_type}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        list_col1, list_col2 = st.columns(2)
+        with list_col1:
+            st.markdown("##### 🔴 Primary Endpoints Included")
+            if primary_eps:
+                for ep in primary_eps:
+                    st.markdown(f"- `{ep['method']}` `{ep['path']}`")
+            else:
+                st.info("No primary endpoints detected.")
+        with list_col2:
+            st.markdown("##### 🔵 Supporting Endpoints Included")
+            if supporting_eps:
+                for ep in supporting_eps:
+                    st.markdown(f"- `{ep['method']}` `{ep['path']}`")
+            else:
+                st.info("No supporting endpoints detected.")
+        st.divider()
+        
         # Determine extension
         ext = "py"
         if language.lower() in ["javascript", "typescript"]:
