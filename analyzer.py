@@ -29,18 +29,23 @@ def analyze_api_docs(url: str, scraped_text: str, use_case: str, language: str) 
         return get_mock_analysis(url, use_case, language)
         
     prompt = f"""
-You are an expert API Architect. Analyze the following API documentation text and user use case.
+You are an expert API Architect and Relevance Scoring Engine. Analyze the following API documentation text and user use case.
 URL: {url}
 Use Case: {use_case}
 Target Language: {language}
-Scraped Text (may be truncated or empty if URL fetch failed/blocked):
+Scraped Text/Parsed Spec (may be truncated or empty if URL fetch failed/blocked):
 ---
 {scraped_text[:30000]}
 ---
 
-Analyze the API details and match it to the use case.
+Step 1: Extract key concepts and intents from the use case. Understand what the user's workflow needs to accomplish.
+Step 2: Analyze each endpoint in the specification against the use case intent.
+Step 3: Generate a relevance score (0-100) for every endpoint based on keyword overlap, semantic similarity, tag relevance, operation purpose, and dependency relationships.
+Step 4: Categorize endpoints into: "Primary" (directly required), "Supporting" (frequently needed alongside), "Optional" (useful but not required), or "Irrelevant" (unrelated).
+Step 5: Provide a short "reasoning" for the classification.
+Step 6: Identify any workflow dependency relationships (e.g., you need to create a Customer before a Checkout Session).
+
 CRITICAL: If the Scraped Text is empty or limited, please use your pre-trained knowledge about the API at the URL: {url}.
-For example, if the URL is about Stripe (stripe.com), you know its authentication method (Bearer Token), its SDK recommendation (stripe), and the core endpoints like POST /v1/payments, GET /v1/customers, etc. Use this internal knowledge to complete the analysis.
 
 You MUST return your response as a valid JSON object matching the following structure:
 {{
@@ -51,14 +56,17 @@ You MUST return your response as a valid JSON object matching the following stru
     }},
     "sdk_recommendation": {{
         "name": "Package name to install (e.g., 'stripe', 'twilio', 'openai')",
-        "install_command": "Command to install (e.g., 'pip install stripe' or 'npm install stripe')"
+        "install_command": "Command to install"
     }},
     "endpoints": [
         {{
             "method": "GET | POST | PUT | DELETE | PATCH",
             "path": "/path/to/endpoint",
             "description": "Short description of what it does",
-            "relevance": "Why this endpoint is relevant to the user's use case"
+            "relevance_score": 95,
+            "category": "Primary | Supporting | Optional | Irrelevant",
+            "reasoning": "This endpoint directly creates payment checkout sessions and is essential...",
+            "dependencies": ["POST /customers", "GET /products"]
         }}
     ]
 }}
@@ -105,10 +113,22 @@ def get_mock_analysis(url: str, use_case: str, language: str) -> dict:
                 "install_command": "pip install stripe" if clean_lang == "python" else "npm install stripe"
             },
             "endpoints": [
-                {"method": "POST", "path": "/v1/payment_intents", "description": "Create a PaymentIntent to start a checkout session", "relevance": "Core endpoint required to initiate a secure transaction session."},
-                {"method": "POST", "path": "/v1/charges", "description": "Create a direct credit card charge", "relevance": "Alternative endpoint for simple card billing workflows."},
-                {"method": "POST", "path": "/v1/customers", "description": "Create a customer record", "relevance": "Saves customer billing information for subsequent charges."},
-                {"method": "POST", "path": "/v1/refunds", "description": "Refund an existing transaction", "relevance": "Essential endpoint to return money back to customers."}
+                {
+                    "method": "POST", "path": "/v1/payment_intents", "description": "Create a PaymentIntent to start a checkout session", 
+                    "relevance_score": 98, "category": "Primary", "reasoning": "Core endpoint required to initiate a secure transaction session.", "dependencies": ["POST /v1/customers"]
+                },
+                {
+                    "method": "POST", "path": "/v1/customers", "description": "Create a customer record", 
+                    "relevance_score": 85, "category": "Supporting", "reasoning": "Saves customer billing information for subsequent charges.", "dependencies": []
+                },
+                {
+                    "method": "POST", "path": "/v1/refunds", "description": "Refund an existing transaction", 
+                    "relevance_score": 40, "category": "Optional", "reasoning": "Useful for reversing charges but not strictly required for the happy path checkout.", "dependencies": ["POST /v1/payment_intents"]
+                },
+                {
+                    "method": "POST", "path": "/v1/charges", "description": "Create a direct credit card charge", 
+                    "relevance_score": 20, "category": "Irrelevant", "reasoning": "Legacy endpoint superseded by Payment Intents for checkout flows.", "dependencies": []
+                }
             ]
         }
     elif "twilio" in clean_url:
@@ -123,8 +143,14 @@ def get_mock_analysis(url: str, use_case: str, language: str) -> dict:
                 "install_command": "pip install twilio" if clean_lang == "python" else "npm install twilio"
             },
             "endpoints": [
-                {"method": "POST", "path": "/2010-04-01/Accounts/{AccountSid}/Messages.json", "description": "Send an SMS message resource", "relevance": "Primary endpoint for sending outbound texts and messages."},
-                {"method": "GET", "path": "/2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json", "description": "Retrieve SMS log status", "relevance": "Used to track if the SMS delivery was successful or failed."}
+                {
+                    "method": "POST", "path": "/2010-04-01/Accounts/{AccountSid}/Messages.json", "description": "Send an SMS message resource", 
+                    "relevance_score": 100, "category": "Primary", "reasoning": "Primary endpoint for sending outbound texts and messages.", "dependencies": []
+                },
+                {
+                    "method": "GET", "path": "/2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json", "description": "Retrieve SMS log status", 
+                    "relevance_score": 75, "category": "Supporting", "reasoning": "Used to track if the SMS delivery was successful or failed.", "dependencies": ["POST /2010-04-01/Accounts/{AccountSid}/Messages.json"]
+                }
             ]
         }
     elif "openai" in clean_url:
@@ -139,8 +165,14 @@ def get_mock_analysis(url: str, use_case: str, language: str) -> dict:
                 "install_command": "pip install openai" if clean_lang == "python" else "npm install openai"
             },
             "endpoints": [
-                {"method": "POST", "path": "/v1/chat/completions", "description": "Generate text completions based on prompt messages", "relevance": "Core endpoint to run standard LLM inference and query responses."},
-                {"method": "POST", "path": "/v1/embeddings", "description": "Generate vector representations of text inputs", "relevance": "Required to perform semantic search or build a RAG database application."}
+                {
+                    "method": "POST", "path": "/v1/chat/completions", "description": "Generate text completions based on prompt messages", 
+                    "relevance_score": 100, "category": "Primary", "reasoning": "Core endpoint to run standard LLM inference and query responses.", "dependencies": []
+                },
+                {
+                    "method": "POST", "path": "/v1/embeddings", "description": "Generate vector representations of text inputs", 
+                    "relevance_score": 40, "category": "Optional", "reasoning": "Required to perform semantic search or build a RAG database application, but maybe optional depending on context.", "dependencies": []
+                }
             ]
         }
     else:
@@ -156,7 +188,13 @@ def get_mock_analysis(url: str, use_case: str, language: str) -> dict:
                 "install_command": "pip install requests" if clean_lang == "python" else "npm install axios"
             },
             "endpoints": [
-                {"method": "GET", "path": "/api/v1/resources", "description": "Query matching resources database list", "relevance": "Checks database items matching the use-case query request."},
-                {"method": "POST", "path": "/api/v1/resources", "description": "Insert a new item record", "relevance": "Stores data entries requested by your custom application logic."}
+                {
+                    "method": "GET", "path": "/api/v1/resources", "description": "Query matching resources database list", 
+                    "relevance_score": 80, "category": "Primary", "reasoning": "Checks database items matching the use-case query request.", "dependencies": []
+                },
+                {
+                    "method": "POST", "path": "/api/v1/resources", "description": "Insert a new item record", 
+                    "relevance_score": 90, "category": "Primary", "reasoning": "Stores data entries requested by your custom application logic.", "dependencies": []
+                }
             ]
         }

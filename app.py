@@ -422,24 +422,80 @@ if st.session_state.get("result_ready"):
         st.markdown(href_code, unsafe_allow_html=True)
         
     with tab_endpoints:
-        st.markdown("### Endpoint Mapping")
-        st.markdown("These endpoints were selected as crucial to the use case based on API structures:")
+        st.markdown("### 🏆 Endpoint Relevance Ranking")
+        st.markdown("Endpoints analyzed and intelligently ranked against your use case intent.")
         
-        for ep in analysis.get("endpoints", []):
+        endpoints = analysis.get("endpoints", [])
+        
+        # Sort endpoints by relevance score descending
+        endpoints.sort(key=lambda x: x.get("relevance_score", x.get("relevance", 0) if isinstance(x.get("relevance", 0), int) else 0), reverse=True)
+        
+        # Calculate Metrics
+        total = len(endpoints)
+        primary = sum(1 for e in endpoints if e.get("category") == "Primary")
+        supporting = sum(1 for e in endpoints if e.get("category") == "Supporting")
+        optional = sum(1 for e in endpoints if e.get("category") == "Optional")
+        avg_score = sum(e.get("relevance_score", 0) for e in endpoints) / total if total > 0 else 0
+        
+        # Display Metrics Panel
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Total Analyzed", total)
+        m2.metric("Primary", primary)
+        m3.metric("Supporting", supporting)
+        m4.metric("Optional", optional)
+        m5.metric("Avg Score", f"{avg_score:.1f}")
+        
+        st.divider()
+        
+        for ep in endpoints:
             method = ep.get("method", "GET").upper()
             path = ep.get("path", "/")
             desc = ep.get("description", "")
-            relevance = ep.get("relevance", "")
+            score = ep.get("relevance_score", 0)
+            category = ep.get("category", "Unknown")
+            
+            # Fallback for old relevance field if using cached or non-updated LLM response
+            if category == "Unknown" and "relevance" in ep:
+                reasoning = ep.get("relevance", "")
+            else:
+                reasoning = ep.get("reasoning", "")
+                
+            deps = ep.get("dependencies", [])
             
             method_class = f"method-{method.lower()}"
+            
+            # Badge color based on category
+            cat_color = "#94a3b8"
+            if category == "Primary": cat_color = "#ef4444"
+            elif category == "Supporting": cat_color = "#3b82f6"
+            elif category == "Optional": cat_color = "#10b981"
+            elif category == "Irrelevant": cat_color = "#64748b"
+            
             st.markdown(f"""
-            <div style="background-color: #161b22; border-left: 4px solid #818cf8; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem;">
-                <span class="badge-method {method_class}">{method}</span>
-                <strong style="font-size: 1.1rem; color: #f8fafc; font-family: monospace;">{path}</strong>
-                <p style="margin: 0.5rem 0 0.2rem 0; color: #cbd5e1;">{desc}</p>
-                <small style="color: #a78bfa;">🎯 Relevance: {relevance}</small>
+            <div style="background-color: #161b22; border-left: 4px solid {cat_color}; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span class="badge-method {method_class}">{method}</span>
+                        <strong style="font-size: 1.1rem; color: #f8fafc; font-family: monospace;">{path}</strong>
+                    </div>
+                    <div>
+                        <span style="background-color: #242c3d; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: bold; border: 1px solid {cat_color}; color: {cat_color};">
+                            {category} | Score: {score}
+                        </span>
+                    </div>
+                </div>
+                <p style="margin: 0.8rem 0 0.4rem 0; color: #cbd5e1; font-weight: 500;">{desc}</p>
             </div>
             """, unsafe_allow_html=True)
+            
+            with st.expander("🔍 Detailed Reasoning & Dependencies"):
+                st.markdown(f"**Reasoning:** {reasoning}")
+                if deps:
+                    st.markdown("**Dependencies:**")
+                    for d in deps:
+                        st.markdown(f"- `{d}`")
+                else:
+                    st.markdown("**Dependencies:** None")
             
     with tab_postman:
         st.markdown("### Postman Collection JSON")
