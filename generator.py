@@ -27,6 +27,15 @@ def generate_wrapper(api_metadata: dict, language: str, use_case: str) -> str:
     gen = get_generator(language, api_key=api_key)
     return gen.generate(api_metadata, use_case)
 
+def generate_rest_integration(api_metadata: dict, language: str, use_case: str) -> str:
+    """
+    Generates standalone REST integration code for the target language.
+    """
+    from generators import get_rest_generator
+    
+    gen = get_rest_generator(language, api_key=api_key)
+    return gen.generate_rest(api_metadata, use_case)
+
 def generate_postman_collection(api_metadata: dict) -> str:
     """
     Generates a standard Postman Collection (v2.1.0 JSON format).

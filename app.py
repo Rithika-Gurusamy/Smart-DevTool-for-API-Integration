@@ -4,7 +4,7 @@ import base64
 import os
 from parser import fetch_docs, save_uploaded_file, extract_text_from_file
 from analyzer import analyze_api_docs
-from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram
+from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram, generate_rest_integration
 from spec_parser import detect_and_parse_spec, SpecParserError
 
 # Page configuration
@@ -335,6 +335,7 @@ if generate_btn:
             # Step 3: Code Gen
             status.update(label="Building wrapper class SDK & Postman collection...", state="running")
             wrapper_code = generate_wrapper(analysis, lang_input, use_case_input)
+            rest_code = generate_rest_integration(analysis, lang_input, use_case_input)
             postman_json = generate_postman_collection(analysis)
             sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
             
@@ -344,6 +345,7 @@ if generate_btn:
         st.session_state["result_ready"] = True
         st.session_state["analysis"] = analysis
         st.session_state["wrapper_code"] = wrapper_code
+        st.session_state["rest_code"] = rest_code
         st.session_state["postman_json"] = postman_json
         st.session_state["sequence_mermaid"] = sequence_mermaid
         st.session_state["language"] = lang_input
@@ -352,6 +354,7 @@ if generate_btn:
 if st.session_state.get("result_ready"):
     analysis = st.session_state["analysis"]
     wrapper_code = st.session_state["wrapper_code"]
+    rest_code = st.session_state.get("rest_code", "")
     postman_json = st.session_state["postman_json"]
     sequence_mermaid = st.session_state["sequence_mermaid"]
     language = st.session_state["language"]
@@ -391,8 +394,9 @@ if st.session_state.get("result_ready"):
         """, unsafe_allow_html=True)
 
     # Tabs for developer utility exports
-    tab_code, tab_endpoints, tab_postman, tab_sequence = st.tabs([
+    tab_code, tab_rest, tab_endpoints, tab_postman, tab_sequence = st.tabs([
         "💻 Client Wrapper", 
+        "🌐 REST Integration",
         "🗺️ Endpoint Mapping", 
         "📬 Postman Collection", 
         "📊 Sequence Diagram"
@@ -471,6 +475,76 @@ if st.session_state.get("result_ready"):
         b64_code = base64.b64encode(wrapper_code.encode()).decode()
         href_code = f'<a href="data:file/txt;base64,{b64_code}" download="{filename}" class="download-btn">📥 Download client.{ext}</a>'
         st.markdown(href_code, unsafe_allow_html=True)
+        
+    with tab_rest:
+        st.markdown("### REST Integration Code")
+        st.markdown(f"Standalone executable requests in `{language}`.")
+        
+        # REST Summary Panel
+        st.markdown("#### 📊 REST Summary Panel")
+        primary_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Primary"]
+        supporting_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Supporting"]
+        num_requests = len(primary_eps) + len(supporting_eps)
+        auth_type = analysis.get("auth_method", {}).get("type", "API Key")
+        
+        rest_col1, rest_col2, rest_col3 = st.columns(3)
+        with rest_col1:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Total Standalone Requests</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{num_requests} Requests</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with rest_col2:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Authentication Method</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{auth_type}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with rest_col3:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Target API</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{analysis.get('api_name', 'Custom API')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        list_rest_col1, list_rest_col2 = st.columns(2)
+        with list_rest_col1:
+            st.markdown("##### 🔴 Included Primary Endpoints")
+            if primary_eps:
+                for ep in primary_eps:
+                    st.markdown(f"- `{ep['method']}` `{ep['path']}`")
+            else:
+                st.info("No primary endpoints included.")
+        with list_rest_col2:
+            st.markdown("##### 🔵 Included Supporting Endpoints")
+            if supporting_eps:
+                for ep in supporting_eps:
+                    st.markdown(f"- `{ep['method']}` `{ep['path']}`")
+            else:
+                st.info("No supporting endpoints included.")
+        st.divider()
+
+        # Determine extension
+        rest_ext = "py"
+        if language.lower() in ["javascript", "typescript"]:
+            rest_ext = "js"
+        elif language.lower() == "go":
+            rest_ext = "go"
+        elif language.lower() == "java":
+            rest_ext = "java"
+        elif language.lower() == "c#":
+            rest_ext = "cs"
+
+        st.code(rest_code, language=language.lower())
+        
+        # Download button for rest examples
+        filename_rest = f"rest_examples.{rest_ext}"
+        b64_rest = base64.b64encode(rest_code.encode()).decode()
+        href_rest = f'<a href="data:file/txt;base64,{b64_rest}" download="{filename_rest}" class="download-btn">📥 Download rest_examples.{rest_ext}</a>'
+        st.markdown(href_rest, unsafe_allow_html=True)
         
     with tab_endpoints:
         st.markdown("### 🏆 Endpoint Relevance Ranking")
