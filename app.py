@@ -386,6 +386,21 @@ if generate_btn or analyze_frontend_btn:
             status.update(label="Analysis Completed Successfully!", state="complete")
             st.session_state["result_ready"] = True
 
+def update_frontend_blueprint():
+    blueprint = st.session_state["frontend_blueprint"]
+    from frontend_generator import generate_frontend_client_files, generate_frontend_zip
+    frontend_files, total_crud_methods = generate_frontend_client_files(blueprint)
+    frontend_zip_bytes = generate_frontend_zip(blueprint)
+    
+    st.session_state["frontend_files"] = frontend_files
+    st.session_state["total_crud_methods"] = total_crud_methods
+    st.session_state["frontend_zip_bytes"] = frontend_zip_bytes
+    
+    st.session_state["total_entities"] = len(blueprint.get("model_plan", []))
+    st.session_state["total_requests"] = len([f for f in frontend_files.keys() if "Request.js" in f])
+    st.session_state["total_responses"] = len([f for f in frontend_files.keys() if "Response.js" in f])
+    st.session_state["total_models"] = st.session_state["total_entities"] + st.session_state["total_requests"] + st.session_state["total_responses"]
+
 def dict_to_tree(d, indent=""):
     tree = ""
     if isinstance(d, dict):
@@ -516,9 +531,46 @@ def render_frontend_blueprint_dashboard():
         for svc in service_plan:
             st.markdown(f"##### 🛠️ `{svc.get('service_name', 'UnnamedService')}`")
             st.markdown(f"*{svc.get('description', '')}*")
+            
+            # Confidence & Rationale
+            col_s1, col_s2 = st.columns([1, 4])
+            with col_s1:
+                st.metric("Grouping Confidence", f"{svc.get('confidence_score', 90)}%")
+            with col_s2:
+                st.info(f"**Rationale:** {svc.get('explanation', 'Automatically grouped based on endpoint path semantics.')}")
+            
+            # CRUD, Shared resources, Dependencies
+            crud_rels = svc.get("crud_relationships", [])
+            shared_res = svc.get("shared_resources", [])
+            dep_graph = svc.get("dependency_graph", [])
+            
+            col_d1, col_d2, col_d3 = st.columns(3)
+            with col_d1:
+                st.markdown("**🔄 CRUD Summary:**")
+                if crud_rels:
+                    for cr in crud_rels:
+                        st.markdown(f"- `{cr}`")
+                else:
+                    st.write("None detected.")
+            with col_d2:
+                st.markdown("**📦 Shared Resources:**")
+                if shared_res:
+                    for sr in shared_res:
+                        st.markdown(f"- `{sr}`")
+                else:
+                    st.write("None detected.")
+            with col_d3:
+                st.markdown("**🔗 Dependencies:**")
+                if dep_graph:
+                    for dg in dep_graph:
+                        st.markdown(f"- `{dg}`")
+                else:
+                    st.write("None detected.")
+                    
             st.markdown("**Assigned Endpoints:**")
-            for ep in svc.get("endpoints", []):
-                st.markdown(f"- `{ep}`")
+            with st.expander(f"Inspect {len(svc.get('endpoints', []))} Endpoints"):
+                for ep in svc.get('endpoints', []):
+                    st.markdown(f"- `{ep}`")
             st.markdown("---")
             
         st.markdown("#### 🔗 Endpoint Dependency Graph")
@@ -529,6 +581,156 @@ def render_frontend_blueprint_dashboard():
                 st.markdown("")
         else:
             st.info("No explicit endpoint dependencies identified.")
+            
+        st.divider()
+        st.markdown("### ⚙️ Manual Service Overrides")
+        st.markdown("Review and adjust the service organization. Changes will instantly regenerate the frontend codebase files.")
+        
+        action = st.selectbox(
+            "Select Override Action:",
+            ["None", "Rename Service Module", "Move Endpoints Between Services", "Merge Services", "Split Service"],
+            key="override_action"
+        )
+        
+        service_names = [svc["service_name"] for svc in service_plan]
+        all_endpoints = []
+        for svc in service_plan:
+            all_endpoints.extend(svc.get("endpoints", []))
+        all_endpoints = sorted(list(set(all_endpoints)))
+        
+        if action == "Rename Service Module":
+            st.markdown("#### Rename Service Module")
+            col_rn1, col_rn2 = st.columns(2)
+            with col_rn1:
+                old_name = st.selectbox("Select Service to Rename:", service_names, key="rename_old_name")
+            with col_rn2:
+                new_name = st.text_input("New Service Name:", value=old_name, key="rename_new_name")
+            
+            if st.button("Apply Rename", type="primary", key="btn_rename"):
+                if new_name.strip() and new_name != old_name:
+                    for s in st.session_state["frontend_blueprint"]["service_plan"]:
+                        if s["service_name"] == old_name:
+                            s["service_name"] = new_name.strip()
+                    update_frontend_blueprint()
+                    st.success(f"Renamed `{old_name}` to `{new_name}`!")
+                    st.rerun()
+                else:
+                    st.warning("Please specify a new valid name.")
+                    
+        elif action == "Move Endpoints Between Services":
+            st.markdown("#### Move Endpoints Between Services")
+            col_mv1, col_mv2 = st.columns(2)
+            with col_mv1:
+                eps_to_move = st.multiselect("Select Endpoints to Move:", all_endpoints, key="move_eps")
+            with col_mv2:
+                target_service = st.selectbox("Select Target Service:", service_names, key="move_target")
+                
+            if st.button("Apply Move", type="primary", key="btn_move"):
+                if eps_to_move and target_service:
+                    # Remove from current services
+                    for ep in eps_to_move:
+                        for s in st.session_state["frontend_blueprint"]["service_plan"]:
+                            if ep in s["endpoints"]:
+                                s["endpoints"].remove(ep)
+                    # Add to target
+                    for s in st.session_state["frontend_blueprint"]["service_plan"]:
+                        if s["service_name"] == target_service:
+                            s["endpoints"].extend(eps_to_move)
+                            s["endpoints"] = list(set(s["endpoints"]))
+                    # Clean up empty services
+                    st.session_state["frontend_blueprint"]["service_plan"] = [
+                        s for s in st.session_state["frontend_blueprint"]["service_plan"] if len(s["endpoints"]) > 0
+                    ]
+                    update_frontend_blueprint()
+                    st.success(f"Moved selected endpoints to `{target_service}`!")
+                    st.rerun()
+                else:
+                    st.warning("Please select endpoints and a target service.")
+                    
+        elif action == "Merge Services":
+            st.markdown("#### Merge Services")
+            col_mg1, col_mg2 = st.columns(2)
+            with col_mg1:
+                source_svc = st.selectbox("Select Source Service (will be deleted):", service_names, key="merge_source")
+            with col_mg2:
+                remaining_names = [n for n in service_names if n != source_svc]
+                if remaining_names:
+                    target_svc = st.selectbox("Select Target Service (will absorb endpoints):", remaining_names, key="merge_target")
+                else:
+                    target_svc = None
+                    st.info("Need at least two services to merge.")
+                    
+            if st.button("Apply Merge", type="primary", key="btn_merge"):
+                if source_svc and target_svc:
+                    src_obj = None
+                    tgt_obj = None
+                    for s in st.session_state["frontend_blueprint"]["service_plan"]:
+                        if s["service_name"] == source_svc:
+                            src_obj = s
+                        elif s["service_name"] == target_svc:
+                            tgt_obj = s
+                            
+                    if src_obj and tgt_obj:
+                        tgt_obj["endpoints"].extend(src_obj["endpoints"])
+                        tgt_obj["endpoints"] = list(set(tgt_obj["endpoints"]))
+                        tgt_obj["explanation"] = f"{tgt_obj.get('explanation', '')} | Merged with {source_svc}: {src_obj.get('explanation', '')}"
+                        tgt_obj["confidence_score"] = min(tgt_obj.get("confidence_score", 100), src_obj.get("confidence_score", 100))
+                        
+                        st.session_state["frontend_blueprint"]["service_plan"] = [
+                            s for s in st.session_state["frontend_blueprint"]["service_plan"] if s["service_name"] != source_svc
+                        ]
+                        update_frontend_blueprint()
+                        st.success(f"Merged `{source_svc}` into `{target_svc}`!")
+                        st.rerun()
+                else:
+                    st.warning("Please select both a source and target service.")
+                    
+        elif action == "Split Service":
+            st.markdown("#### Split Service")
+            col_sp1, col_sp2 = st.columns(2)
+            with col_sp1:
+                split_source = st.selectbox("Select Service to Split From:", service_names, key="split_source")
+                split_source_eps = []
+                for s in service_plan:
+                    if s["service_name"] == split_source:
+                        split_source_eps = s.get("endpoints", [])
+                        break
+                eps_to_split = st.multiselect("Select Endpoints to Split Off:", split_source_eps, key="split_eps")
+            with col_sp2:
+                new_svc_name = st.text_input("New Service Name:", placeholder="e.g. billingService", key="split_new_name")
+                
+            if st.button("Apply Split", type="primary", key="btn_split"):
+                if split_source and eps_to_split and new_svc_name.strip():
+                    new_svc_name = new_svc_name.strip()
+                    src_obj = None
+                    for s in st.session_state["frontend_blueprint"]["service_plan"]:
+                        if s["service_name"] == split_source:
+                            src_obj = s
+                            for ep in eps_to_split:
+                                if ep in s["endpoints"]:
+                                    s["endpoints"].remove(ep)
+                            break
+                    
+                    new_svc = {
+                        "service_name": new_svc_name,
+                        "description": f"Split off from {split_source}",
+                        "endpoints": list(eps_to_split),
+                        "confidence_score": 100,
+                        "explanation": f"Manually split off from {split_source}.",
+                        "crud_relationships": [],
+                        "shared_resources": [],
+                        "dependency_graph": []
+                    }
+                    st.session_state["frontend_blueprint"]["service_plan"].append(new_svc)
+                    
+                    st.session_state["frontend_blueprint"]["service_plan"] = [
+                        s for s in st.session_state["frontend_blueprint"]["service_plan"] if len(s["endpoints"]) > 0
+                    ]
+                    update_frontend_blueprint()
+                    st.success(f"Split endpoints from `{split_source}` into new service `{new_svc_name}`!")
+                    st.rerun()
+                else:
+                    st.warning("Please specify endpoints to split and a valid new service name.")
             
     with tab_models:
         st.markdown("### 📦 Frontend Models & Configuration Dashboard")

@@ -221,7 +221,7 @@ Step 1: Resource Grouping. Organize all endpoints into logical resource-based gr
 Step 2: CRUD Pattern Detection. For each endpoint, determine the CRUD pattern it represents (Create, Read, Update, Delete, Search/List).
 Step 3: Authentication Flow Analysis. Plan how the frontend will authenticate (strategy e.g. JWT, Bearer Token, API Key, Session-based), identify the login/logout/refresh endpoints, and suggest frontend storage (e.g. localStorage, HttpOnly Cookie).
 Step 4: Endpoint Dependency Analysis. Map dependent sequences (e.g., login must succeed before profile call, customer must be created before checkout session).
-Step 5: Service Planning. Organize client integrations into services (e.g. authService, productService). Do not write code; assign endpoints to planned services.
+Step 5: Service Planning. Organize client integrations into services (e.g. authService, productService). Assign endpoints to planned services. For each service domain, infer logical domains intelligently, calculate a grouping confidence score (0-100) and rationale, map its CRUD patterns, identify shared models, and outline cross-resource dependencies.
 Step 6: Model Planning. Design reusable data schemas/entities (e.g. User, Product, Order) that correspond to API requests and responses. Include fields and their primitive types.
 Step 7: Configuration Planning. Outline config defaults (base URL, content-type headers, timeout, etc.).
 Step 8: Recommended Folder Structure. Plan an organized frontend directory layout relative to "src/" tailored for API integration (e.g. api, services, models, config, hooks, utils).
@@ -271,7 +271,12 @@ You MUST return your response as a valid JSON object matching the following stru
         {{
             "service_name": "authService",
             "description": "Responsible for login, logout, and token refresh endpoints",
-            "endpoints": ["POST /login", "POST /logout"]
+            "endpoints": ["POST /login", "POST /logout"],
+            "confidence_score": 98,
+            "explanation": "Authentication endpoints share tags, authentication requirements, and related schemas.",
+            "crud_relationships": ["POST /login", "POST /logout"],
+            "shared_resources": ["User"],
+            "dependency_graph": []
         }}
     ],
     "model_plan": [
@@ -379,12 +384,22 @@ def get_mock_frontend_analysis(url: str, framework: str) -> dict:
                 {
                     "service_name": "customerService",
                     "description": "Manages Stripe customers CRUD operations",
-                    "endpoints": ["POST /v1/customers", "GET /v1/customers/{id}"]
+                    "endpoints": ["POST /v1/customers", "GET /v1/customers/{id}"],
+                    "confidence_score": 95,
+                    "explanation": "Customer service groups billing profile endpoints sharing Stripe tags and Customer models.",
+                    "crud_relationships": ["POST /v1/customers", "GET /v1/customers/{id}"],
+                    "shared_resources": ["Customer"],
+                    "dependency_graph": ["POST /v1/customers -> POST /v1/payment_intents"]
                 },
                 {
                     "service_name": "paymentService",
                     "description": "Manages Stripe transaction sessions and intents",
-                    "endpoints": ["POST /v1/payment_intents", "POST /v1/refunds"]
+                    "endpoints": ["POST /v1/payment_intents", "POST /v1/refunds"],
+                    "confidence_score": 90,
+                    "explanation": "Payments service collects checkout endpoints, transaction intents, and charge refunds.",
+                    "crud_relationships": ["POST /v1/payment_intents", "POST /v1/refunds"],
+                    "shared_resources": ["PaymentIntent"],
+                    "dependency_graph": []
                 }
             ],
             "model_plan": [
@@ -469,7 +484,12 @@ def get_mock_frontend_analysis(url: str, framework: str) -> dict:
                     "endpoints": [
                         "POST /2010-04-01/Accounts/{AccountSid}/Messages.json",
                         "GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json"
-                    ]
+                    ],
+                    "confidence_score": 98,
+                    "explanation": "Twilio messaging endpoints share SMS dispatch path patterns and Message schema.",
+                    "crud_relationships": ["POST /2010-04-01/Accounts/{AccountSid}/Messages.json", "GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json"],
+                    "shared_resources": ["Message"],
+                    "dependency_graph": ["POST /2010-04-01/Accounts/{AccountSid}/Messages.json -> GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json"]
                 }
             ],
             "model_plan": [
@@ -535,7 +555,12 @@ def get_mock_frontend_analysis(url: str, framework: str) -> dict:
                 {
                     "service_name": "resourceService",
                     "description": "Handles resource model CRUD requests",
-                    "endpoints": ["GET /api/v1/resources", "POST /api/v1/resources"]
+                    "endpoints": ["GET /api/v1/resources", "POST /api/v1/resources"],
+                    "confidence_score": 85,
+                    "explanation": "Resource service manages basic CRUD patterns on the core Resource entity.",
+                    "crud_relationships": ["GET /api/v1/resources", "POST /api/v1/resources"],
+                    "shared_resources": ["Resource"],
+                    "dependency_graph": []
                 }
             ],
             "model_plan": [
