@@ -6,6 +6,7 @@ from parser import fetch_docs, save_uploaded_file, extract_text_from_file
 from analyzer import analyze_api_docs, analyze_frontend_integration
 from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram, generate_rest_integration
 from spec_parser import detect_and_parse_spec, SpecParserError
+from generators import LANGUAGE_STACKS, validate_compatibility
 
 # Page configuration
 st.set_page_config(
@@ -243,21 +244,58 @@ with col_form:
 
 with col_meta:
     st.markdown("### ⚙️ Target Options")
+    
+    # Target Language Selection
+    lang_options = ["Python", "JavaScript", "TypeScript", "Java", "C#"]
+    lang_val = st.session_state.get("lang_input", "Python")
+    if lang_val not in lang_options:
+        lang_val = "Python"
+        
     lang_input = st.selectbox(
-        "Target Language (SDK & REST):",
-        ["Python", "JavaScript", "TypeScript", "Go", "Java", "C#"],
-        index=["Python", "JavaScript", "TypeScript", "Go", "Java", "C#"].index(st.session_state["lang_input"])
+        "Target Language:",
+        lang_options,
+        index=lang_options.index(lang_val)
     )
+    st.session_state["lang_input"] = lang_input
     
-    framework_input = st.selectbox(
-        "Frontend Framework (Blueprint):",
-        ["React"],
-        index=0
+    # Target Stack Selection
+    stack_options = LANGUAGE_STACKS.get(lang_input, [])
+    stack_val = st.session_state.get("stack_input", "")
+    if stack_val not in stack_options:
+        stack_val = stack_options[0] if stack_options else ""
+        
+    stack_input = st.selectbox(
+        "Target Stack / Framework:",
+        stack_options,
+        index=stack_options.index(stack_val) if stack_val in stack_options else 0
     )
+    st.session_state["stack_input"] = stack_input
     
+    # Validate compatibility
+    is_compatible = validate_compatibility(lang_input, stack_input)
+    is_frontend_compatible = lang_input in ["JavaScript", "TypeScript"] and stack_input in ["Vanilla JavaScript", "React", "Next.js", "Vue", "Angular"]
+    
+    if not is_compatible:
+        st.error("❌ Selected Stack is incompatible with Language.")
+        
     st.markdown("<br>", unsafe_allow_html=True)
-    generate_btn = st.button("⚡ Generate SDK & REST", use_container_width=True, type="primary")
-    analyze_frontend_btn = st.button("🔍 Analyze Frontend Integration", use_container_width=True)
+    generate_btn = st.button(
+        "⚡ Generate SDK & REST", 
+        use_container_width=True, 
+        type="primary", 
+        disabled=not is_compatible
+    )
+    
+    frontend_help = ""
+    if not is_frontend_compatible:
+        frontend_help = "Frontend Integration is only available for JavaScript/TypeScript frontend frameworks."
+        
+    analyze_frontend_btn = st.button(
+        "🔍 Analyze Frontend Integration", 
+        use_container_width=True, 
+        disabled=not (is_compatible and is_frontend_compatible),
+        help=frontend_help if not is_frontend_compatible else None
+    )
 
 # Run Generation Process
 if generate_btn or analyze_frontend_btn:
@@ -342,8 +380,8 @@ if generate_btn or analyze_frontend_btn:
                 
                 # Step 3: Code Gen
                 status.update(label="Building wrapper class SDK & Postman collection...", state="running")
-                wrapper_code = generate_wrapper(analysis, lang_input, use_case_input)
-                rest_code = generate_rest_integration(analysis, lang_input, use_case_input)
+                wrapper_code = generate_wrapper(analysis, lang_input, use_case_input, stack_name=stack_input)
+                rest_code = generate_rest_integration(analysis, lang_input, use_case_input, stack_name=stack_input)
                 postman_json = generate_postman_collection(analysis)
                 sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
                 
@@ -355,13 +393,14 @@ if generate_btn or analyze_frontend_btn:
                 st.session_state["postman_json"] = postman_json
                 st.session_state["sequence_mermaid"] = sequence_mermaid
                 st.session_state["language"] = lang_input
+                st.session_state["stack_name"] = stack_input
             else:
                 # Step 2: Frontend Analyzer
                 status.update(label="Analyzing API and generating Frontend Integration Blueprint...", state="running")
                 blueprint = analyze_frontend_integration(
                     url=source_url,
                     scraped_text=scraped_text,
-                    framework=framework_input
+                    framework=stack_input
                 )
                 
                 status.update(label="Generating Frontend API Client & Modular Services...", state="running")
@@ -372,7 +411,7 @@ if generate_btn or analyze_frontend_btn:
                 # Store Frontend Blueprint and generated code in session state
                 st.session_state["workflow_active"] = "frontend_blueprint"
                 st.session_state["frontend_blueprint"] = blueprint
-                st.session_state["framework"] = framework_input
+                st.session_state["framework"] = stack_input
                 st.session_state["frontend_files"] = frontend_files
                 st.session_state["total_crud_methods"] = total_crud_methods
                 st.session_state["frontend_zip_bytes"] = frontend_zip_bytes
@@ -417,6 +456,117 @@ def dict_to_tree(d, indent=""):
             elif isinstance(item, dict):
                 tree += dict_to_tree(item, indent)
     return tree
+
+def render_networking_dashboard(auth_strategy, max_retries=3, enable_logging=True):
+    st.markdown("### 🔌 Centralized Networking Pipeline")
+    st.markdown("""
+    This dashboard visualizes the shared networking interceptor pipeline. All outgoing requests 
+    and incoming responses pass through this pipeline to handle authentication, retries, rate limiting, and errors.
+    """)
+
+    # Mermaid Interceptor Chain
+    st.markdown("#### ⛓️ Interceptor Chain Flow")
+    mermaid_code = f"""
+    sequenceDiagram
+        autonumber
+        participant Client as API Client / Service
+        participant Retry as Retry Interceptor (Exponential Backoff & 429)
+        participant Auth as Auth Interceptor (Inject {auth_strategy})
+        participant Log as Logging Interceptor
+        participant Server as Backend Server API
+
+        Client->>Retry: Execute Request
+        Note over Retry: Track attempt count
+        Retry->>Auth: Pass request
+        Note over Auth: Inject Auth Header ({auth_strategy})
+        Auth->>Log: Pass request
+        Note over Log: Log Request details
+        Log->>Server: HTTP Send
+
+        alt Server returns 2xx Success
+            Server-->>Log: HTTP 200 OK
+            Note over Log: Log Success
+            Log-->>Auth: Response Body
+            Auth-->>Retry: Response Body
+            Retry-->>Client: Success Data
+        else Server returns 429 Rate Limit (Retry-After) or Transient Error (502/503/504)
+            Server-->>Log: HTTP Error
+            Log-->>Auth: Error Response
+            Auth-->>Retry: Error Response
+            Note over Retry: Read Retry-After or Backoff delay
+            Note over Retry: Wait & Retry (up to {max_retries} times)
+            Retry->>Auth: Re-execute Request
+        else Server returns other Errors (400, 401, 403, 500)
+            Server-->>Log: HTTP Error
+            Log-->>Auth: Error Response
+            Auth-->>Retry: Error Response
+            Retry-->>Client: Throw Standardized Exception (e.g. AuthenticationError)
+        end
+    """
+    st.markdown(f"```mermaid\n{mermaid_code}\n```")
+
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.markdown("#### ⚙️ Resiliency & Policy Settings")
+        st.write(f"- **Max Retry Attempts:** `{max_retries}`")
+        st.write("- **Backoff Policy:** `Exponential Backoff (1s * 2^attempt)`")
+        st.write("- **Rate Limiting Policy:** `Read Retry-After header with dynamic cooldown fallback`")
+        st.write(f"- **Logging Hooks:** `Enabled` (Logging level: `INFO/WARN/ERROR`)")
+    with col_c2:
+        st.markdown("#### 🚫 Standardized Exception Mapping")
+        st.markdown("""
+        | HTTP Status / Event | Standardized Exception | Description |
+        |---|---|---|
+        | **401 / 403** | `AuthenticationError` / `AuthenticationException` | Token invalid, expired, or key missing |
+        | **400 / 422** | `ValidationError` / `ValidationException` | Client-side input validation failure |
+        | **429** | `RateLimitError` / `RateLimitException` | Rate limits exceeded after all retries exhausted |
+        | **5xx** | `ServerError` / `ServerException` | Unhandled backend errors |
+        | **Network Issue** | `NetworkError` / `NetworkException` | DNS, connection dropped, or SSL failure |
+        | **Timeout** | `TimeoutError` / `TimeoutException` | Request execution exceeded max timeout limit |
+        """)
+
+def render_target_stack_dashboard(language, stack_name):
+    st.markdown(f"### 📂 Target Stack Dashboard: {stack_name} ({language})")
+    st.markdown(f"""
+    This dashboard details the specific architecture, conventions, and asset organization 
+    designed for the **{stack_name}** target stack in **{language}**.
+    """)
+    
+    from generators.target_stacks import get_stack_generator
+    try:
+        generator = get_stack_generator(stack_name)
+        folder_structure = generator.get_folder_structure()
+        features = generator.get_framework_features()
+        assets = generator.get_generated_assets()
+    except Exception as e:
+        st.error(f"Failed to load stack generator for '{stack_name}': {str(e)}")
+        return
+        
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📂 Recommended Folder Structure")
+        if folder_structure:
+            tree_text = dict_to_tree(folder_structure)
+            st.code(tree_text, language="text")
+        else:
+            st.info("No folder structure defined for this stack.")
+            
+    with col2:
+        st.markdown("#### ⚙️ Framework Features & Conventions")
+        if features:
+            for feat in features:
+                st.markdown(f"- **{feat}**")
+        else:
+            st.info("No specific features declared.")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 📄 Planned Output Assets")
+        if assets:
+            for asset in assets:
+                st.markdown(f"- `{asset}`")
+        else:
+            st.info("No assets listed.")
 
 def render_frontend_blueprint_dashboard():
     blueprint = st.session_state.get("frontend_blueprint", {})
@@ -473,14 +623,16 @@ def render_frontend_blueprint_dashboard():
         
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 6 Tabs (added tab_code)
-    tab_resources, tab_auth, tab_services, tab_models, tab_config, tab_code = st.tabs([
+    # 7 Tabs (added tab_network)
+    tab_resources, tab_auth, tab_services, tab_models, tab_config, tab_code, tab_network, tab_target = st.tabs([
         "📁 Resource Groups & CRUD",
         "🔒 Authentication Plan",
         "💼 Service & Dependency Plan",
         "💾 Data Models (Schemas)",
         "🔧 Project Config & Structure",
-        "💻 Generated Code Files"
+        "💻 Generated Code Files",
+        "🔌 Networking Pipeline",
+        "📂 Target Stack Dashboard"
     ])
     
     with tab_resources:
@@ -829,6 +981,19 @@ def render_frontend_blueprint_dashboard():
         else:
             st.info("No generated files found. Run the Frontend Integration flow first.")
             
+    with tab_network:
+        render_networking_dashboard(
+            auth_strategy=auth_strategy,
+            max_retries=config_plan.get("max_retries", 3),
+            enable_logging=True
+        )
+            
+    with tab_target:
+        render_target_stack_dashboard(
+            language=st.session_state.get("lang_input", "JavaScript"),
+            stack_name=framework
+        )
+            
     st.divider()
     # Download Actions (Requirement 13 & 14)
     col_dl1, col_dl2 = st.columns(2)
@@ -862,17 +1027,18 @@ if st.session_state.get("result_ready"):
         
     analysis = st.session_state["analysis"]
     
-    # If target language changes, dynamically regenerate wrappers and REST integration codes
-    if st.session_state.get("language") != lang_input:
-        with st.spinner("Dynamically updating language assets..."):
-            wrapper_code = generate_wrapper(analysis, lang_input, use_case_input)
-            rest_code = generate_rest_integration(analysis, lang_input, use_case_input)
+    # If target language or stack changes, dynamically regenerate wrappers and REST integration codes
+    if st.session_state.get("language") != lang_input or st.session_state.get("stack_name") != stack_input:
+        with st.spinner("Dynamically updating target stack assets..."):
+            wrapper_code = generate_wrapper(analysis, lang_input, use_case_input, stack_name=stack_input)
+            rest_code = generate_rest_integration(analysis, lang_input, use_case_input, stack_name=stack_input)
             sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
             
             st.session_state["wrapper_code"] = wrapper_code
             st.session_state["rest_code"] = rest_code
             st.session_state["sequence_mermaid"] = sequence_mermaid
             st.session_state["language"] = lang_input
+            st.session_state["stack_name"] = stack_input
             
     wrapper_code = st.session_state["wrapper_code"]
     rest_code = st.session_state.get("rest_code", "")
@@ -915,12 +1081,14 @@ if st.session_state.get("result_ready"):
         """, unsafe_allow_html=True)
 
     # Tabs for developer utility exports
-    tab_code, tab_rest, tab_endpoints, tab_postman, tab_sequence = st.tabs([
+    tab_code, tab_rest, tab_endpoints, tab_postman, tab_sequence, tab_network, tab_target = st.tabs([
         "💻 Client Wrapper", 
         "🌐 REST Integration",
         "🗺️ Endpoint Mapping", 
         "📬 Postman Collection", 
-        "📊 Sequence Diagram"
+        "📊 Sequence Diagram",
+        "🔌 Networking Pipeline",
+        "📂 Target Stack Dashboard"
     ])
     
     with tab_code:
@@ -1176,3 +1344,18 @@ if st.session_state.get("result_ready"):
         st.markdown("---")
         st.markdown("#### Raw Diagram Markup")
         st.code(sequence_mermaid, language="mermaid")
+        
+    with tab_network:
+        auth_info = analysis.get("auth_method", {})
+        auth_type = auth_info.get("type", "API Key")
+        render_networking_dashboard(
+            auth_strategy=auth_type,
+            max_retries=3,
+            enable_logging=True
+        )
+        
+    with tab_target:
+        render_target_stack_dashboard(
+            language=language,
+            stack_name=st.session_state.get("stack_name", "Generic Python")
+        )

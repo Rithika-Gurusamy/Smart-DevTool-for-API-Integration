@@ -52,20 +52,11 @@ Endpoints to implement (ONLY generate standalone HTTP request examples for these
 
 Follow these strict requirements:
 1. Generate a single, self-contained Python script.
-2. Imports: import `requests` and `json`.
-3. Separate each endpoint example clearly with high-fidelity header comments and print statements. E.g.:
-   # ==============================================================================
-   # 1. Create Customer (POST /v1/customers)
-   # ==============================================================================
-4. Authentication: Show how to apply the authentication method {auth_type} cleanly to the headers or parameters.
-5. Variables: Define all parameters (e.g. BASE_URL, API_KEY, path variables, query parameters, payload dictionaries) clearly at the top of each request example so developers can easily replace them.
-6. Execution: Construct the full URL (injecting path variables), set headers, and invoke the request using `requests.get()`, `requests.post()`, etc.
-7. Error Handling: Include a basic check of `response.status_code` to confirm success, and print the parsed JSON response or the raw response text on failure.
-   Example:
-   if response.status_code in [200, 201]:
-       print("Success:", response.json())
-   else:
-       print("Error:", response.status_code, response.text)
+2. Centralized HTTPClient: Include the shared `HTTPClient` base class that manages request headers (auth strategy, Content-Type, Accept), transient retries with backoff, rate limit throttling, and error mappings.
+3. Separation: Separate each endpoint example clearly with header comments.
+4. Variables: Define parameters (e.g. BASE_URL, credentials) at the top.
+5. Execution: Instantiate the client (`client = HTTPClient(...)`) and run requests through `client._request(method, path, ...)`.
+6. Error Handling: Wrap examples in try-except blocks using the normalized exceptions: `AuthenticationError`, `ValidationError`, `RateLimitError`, `ServerError`, `NetworkError`, `TimeoutError`.
 
 Return ONLY the raw Python code. Do not include markdown code blocks or conversational text.
 """
@@ -96,9 +87,103 @@ Return ONLY the raw Python code. Do not include markdown code blocks or conversa
         lines = [
             f"# Standalone Python REST Integration Examples for {api_name}",
             f"# Auth Method: {auth_type} ({auth_desc})",
+            "import os",
+            "import time",
             "import requests",
             "import json",
-            "import os",
+            "from typing import Any, Dict, List, Optional, Union",
+            "",
+            "class APIClientError(Exception): pass",
+            "class AuthenticationError(APIClientError): pass",
+            "class ValidationError(APIClientError): pass",
+            "class RateLimitError(APIClientError): pass",
+            "class ServerError(APIClientError): pass",
+            "class NetworkError(APIClientError): pass",
+            "class TimeoutError(APIClientError): pass",
+            "",
+            "class HTTPClient:",
+            "    def __init__(self, base_url: str, auth_strategy: str, credentials: Dict[str, Any], max_retries: int = 3, backoff_factor: float = 2.0, enable_logging: bool = True):",
+            "        self.base_url = base_url.rstrip('/')",
+            "        self.auth_strategy = auth_strategy",
+            "        self.credentials = credentials",
+            "        self.max_retries = max_retries",
+            "        self.backoff_factor = backoff_factor",
+            "        self.enable_logging = enable_logging",
+            "        self.session = requests.Session()",
+            "        self.session.headers.update({'Content-Type': 'application/json', 'Accept': 'application/json'})",
+            "        self._apply_auth()",
+            "",
+            "    def _apply_auth(self):",
+            "        if self.auth_strategy == 'Bearer Token':",
+            "            self.session.headers['Authorization'] = f\"Bearer {self.credentials.get('token')}\"",
+            "        elif self.auth_strategy == 'API Key':",
+            "            self.session.headers['X-API-Key'] = self.credentials.get('api_key')",
+            "        elif self.auth_strategy == 'Basic Auth':",
+            "            self.session.auth = (self.credentials.get('username'), self.credentials.get('password', ''))",
+            "",
+            "    def _log(self, level: str, msg: str):",
+            "        if self.enable_logging:",
+            "            print(f'[{level}] {msg}')",
+            "",
+            "    def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:",
+            "        url = f'{self.base_url}{path}'",
+            "        retries = 0",
+            "        delay = 1.0",
+            "        while True:",
+            "            self._log('DEBUG', f'Request: {method} {url} | Params: {params} | Data: {data}')",
+            "            try:",
+            "                self.session.headers['X-Request-ID'] = f'req_{int(time.time() * 1000)}'",
+            "                response = self.session.request(method, url, params=params, json=data, timeout=10)",
+            "                status = response.status_code",
+            "                self._log('DEBUG', f'Response Status: {status}')",
+            "                if 200 <= status < 300:",
+            "                    return response.json() if response.text.strip() else {}",
+            "                if status == 401 and 'refresh_token' in self.credentials:",
+            "                    self._log('INFO', '401 Unauthorized. Refreshing token...')",
+            "                    if self._refresh_token():",
+            "                        self._apply_auth()",
+            "                        continue",
+            "                if status == 429:",
+            "                    retry_after = response.headers.get('Retry-After')",
+            "                    if retry_after:",
+            "                        try:",
+            "                            sleep_seconds = float(retry_after)",
+            "                        except ValueError:",
+            "                            sleep_seconds = delay",
+            "                        self._log('WARNING', f'429 Rate Limited. Retrying after {sleep_seconds}s...')",
+            "                        time.sleep(sleep_seconds)",
+            "                        continue",
+            "                if status in [502, 503, 504] and retries < self.max_retries:",
+            "                    self._log('WARNING', f'Transient error {status}. Retrying in {delay}s...')",
+            "                    time.sleep(delay)",
+            "                    retries += 1",
+            "                    delay *= self.backoff_factor",
+            "                    continue",
+            "                if status in [401, 403]:",
+            "                    raise AuthenticationError(f'Authentication failed: {response.text}')",
+            "                elif status == 429:",
+            "                    raise RateLimitError('Rate limit exceeded.')",
+            "                elif 400 <= status < 500:",
+            "                    raise ValidationError(f'Validation failed: {response.text}')",
+            "                else:",
+            "                    raise ServerError(f'Server error: {response.text}')",
+            "            except requests.Timeout as e:",
+            "                if retries < self.max_retries:",
+            "                    time.sleep(delay)",
+            "                    retries += 1",
+            "                    delay *= self.backoff_factor",
+            "                    continue",
+            "                raise TimeoutError(f'Request timed out: {str(e)}')",
+            "            except requests.RequestException as e:",
+            "                if retries < self.max_retries:",
+            "                    time.sleep(delay)",
+            "                    retries += 1",
+            "                    delay *= self.backoff_factor",
+            "                    continue",
+            "                raise NetworkError(f'Network error: {str(e)}')",
+            "",
+            "    def _refresh_token(self) -> bool:",
+            "        return True",
             "",
             "# General Configuration",
             "BASE_URL = 'https://api.example.com'",
@@ -106,11 +191,17 @@ Return ONLY the raw Python code. Do not include markdown code blocks or conversa
 
         if auth_type == "Bearer Token":
             lines.append("API_TOKEN = os.getenv('API_TOKEN', 'YOUR_BEARER_TOKEN')")
+            lines.append("credentials = {'token': API_TOKEN}")
+            lines.append(f"client = HTTPClient(BASE_URL, 'Bearer Token', credentials)")
         elif auth_type == "Basic Auth":
             lines.append("USERNAME = os.getenv('API_USERNAME', 'YOUR_USERNAME')")
             lines.append("PASSWORD = os.getenv('API_PASSWORD', 'YOUR_PASSWORD')")
+            lines.append("credentials = {'username': USERNAME, 'password': PASSWORD}")
+            lines.append(f"client = HTTPClient(BASE_URL, 'Basic Auth', credentials)")
         else:
             lines.append("API_KEY = os.getenv('API_KEY', 'YOUR_API_KEY')")
+            lines.append("credentials = {'api_key': API_KEY}")
+            lines.append(f"client = HTTPClient(BASE_URL, 'API Key', credentials)")
 
         lines.append("")
 
@@ -136,48 +227,27 @@ Return ONLY the raw Python code. Do not include markdown code blocks or conversa
                 formatted_path = path
                 for var in path_vars:
                     formatted_path = formatted_path.replace(f"{{{var}}}", f"{{{var}}}")
-                lines.append(f"url = f'{{BASE_URL}}{formatted_path}'")
+                lines.append(f"path_str = f'{formatted_path}'")
             else:
-                lines.append(f"url = f'{{BASE_URL}}{path}'")
-
-            # Headers and Auth
-            lines.append("headers = {")
-            lines.append("    'Content-Type': 'application/json',")
-            if auth_type == "Bearer Token":
-                lines.append("    'Authorization': f'Bearer {API_TOKEN}'")
-            elif auth_type == "API Key":
-                lines.append("    'X-API-Key': API_KEY")
-            lines.append("}")
-
-            # Basic Auth setup
-            auth_arg = ""
-            if auth_type == "Basic Auth":
-                auth_arg = ", auth=(USERNAME, PASSWORD)"
+                lines.append(f"path_str = '{path}'")
 
             # Payload or Query Parameters
+            lines.append("try:")
             if method in ["POST", "PUT", "PATCH"]:
-                lines.append("payload = {")
-                lines.append("    'example_key': 'example_value'")
-                lines.append("}")
-                lines.append(f"print(f'Sending {method} request to: {{url}}')")
-                lines.append(f"response = requests.{method.lower()}(url, headers=headers, json=payload{auth_arg})")
+                lines.append("    payload = {")
+                lines.append("        'example_key': 'example_value'")
+                lines.append("    }")
+                lines.append(f"    response = client._request('{method}', path_str, data=payload)")
             else:
-                lines.append("params = {")
-                lines.append("    'limit': 10")
-                lines.append("}")
-                lines.append(f"print(f'Sending {method} request to: {{url}}')")
-                lines.append(f"response = requests.{method.lower()}(url, headers=headers, params=params{auth_arg})")
+                lines.append("    params = {")
+                lines.append("        'limit': 10")
+                lines.append("    }")
+                lines.append(f"    response = client._request('{method}', path_str, params=params)")
 
-            # Status Checking and Printing
             lines.extend([
-                "print(f'Response Status: {response.status_code}')",
-                "if response.status_code in [200, 201, 204]:",
-                "    try:",
-                "        print('Response JSON:', json.dumps(response.json(), indent=2))",
-                "    except ValueError:",
-                "        print('Response Text:', response.text)",
-                "else:",
-                "    print('Request Failed:', response.status_code, response.text)",
+                "    print('Response JSON:', json.dumps(response, indent=2))",
+                "except APIClientError as e:",
+                "    print('Request Failed:', str(e))",
                 ""
             ])
 

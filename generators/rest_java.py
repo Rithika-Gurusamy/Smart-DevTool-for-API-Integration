@@ -51,12 +51,11 @@ Endpoints to implement (ONLY generate standalone HttpClient request examples for
 
 Follow these strict requirements:
 1. Generate a single, self-contained, valid Java file with the class name `RestExamples`.
-2. Use standard Java 11+ features: `HttpClient.newHttpClient()`, `HttpRequest`, and `HttpResponse.BodyHandlers.ofString()`.
-3. Separate each endpoint example clearly using standard methods inside `RestExamples` or distinct blocks within the `main` method.
-4. Authentication: Apply the authentication method {auth_type} cleanly to the headers of the request builder.
-5. Variables: Define all parameters (e.g. BASE_URL, API_KEY, path variables, query parameters, payloads) clearly at the top of each block/method so developers can easily replace them.
-6. Execution: Build the URI (injecting path variables, parameters), set headers, configure the body publisher (`HttpRequest.BodyPublishers.ofString(bodyJson)`), and send synchronously.
-7. Error Handling: Include try/catch blocks for `IOException` and `InterruptedException`. Perform check on `response.statusCode()` and print responses appropriately.
+2. Define a hierarchy of custom exception classes: `APIClientError`, `ValidationError`, `AuthenticationError`, `RateLimitError`, `ServerError`, `NetworkError`, `TimeoutError` as package-private classes at the bottom of the file or static nested classes.
+3. Implement a centralized `HttpClientWrapper` helper class that encapsulates a Java 11+ `HttpClient`, injecting appropriate headers for {auth_type}, handles transient error retries (status 502, 503, 504 and network errors) with exponential backoff, respects `Retry-After` header for rate limit (429 status code), handles logging hooks (request/response logs based on enableLogging flag), and throws the appropriate custom exceptions.
+4. Separate each endpoint example clearly using standard methods inside `RestExamples` or distinct blocks within the `main` method.
+5. In the examples, instantiate `HttpClientWrapper` with the appropriate baseUrl and authentication credentials, and route all requests through `HttpClientWrapper.sendRequest()`. Capture client exceptions and print response outputs appropriately.
+6. Variables: Define all parameters (e.g. BASE_URL, API_KEY, path variables, query parameters, payloads) clearly at the top of each block/method so developers can easily replace them.
 
 Return ONLY the raw Java code. Do not include markdown code blocks or conversational text.
 """
@@ -92,6 +91,153 @@ Return ONLY the raw Java code. Do not include markdown code blocks or conversati
             "import java.net.http.HttpResponse;",
             "import java.net.URLEncoder;",
             "import java.nio.charset.StandardCharsets;",
+            "import java.time.Duration;",
+            "import java.util.Map;",
+            "import java.util.HashMap;",
+            "",
+            "// " + "=" * 68,
+            "// Custom Exceptions for Normalized Error Handling",
+            "// " + "=" * 68,
+            "class APIClientError extends RuntimeException {",
+            "    public APIClientError(String msg) { super(msg); }",
+            "    public APIClientError(String msg, Throwable cause) { super(msg, cause); }",
+            "}",
+            "",
+            "class ValidationError extends APIClientError {",
+            "    public ValidationError(String msg) { super(msg); }",
+            "}",
+            "",
+            "class AuthenticationError extends APIClientError {",
+            "    public AuthenticationError(String msg) { super(msg); }",
+            "}",
+            "",
+            "class RateLimitError extends APIClientError {",
+            "    public RateLimitError(String msg) { super(msg); }",
+            "}",
+            "",
+            "class ServerError extends APIClientError {",
+            "    public ServerError(String msg) { super(msg); }",
+            "}",
+            "",
+            "class NetworkError extends APIClientError {",
+            "    public NetworkError(String msg, Throwable cause) { super(msg, cause); }",
+            "}",
+            "",
+            "class TimeoutError extends APIClientError {",
+            "    public TimeoutError(String msg, Throwable cause) { super(msg, cause); }",
+            "}",
+            "",
+            "// " + "=" * 68,
+            "// Reusable HttpClient Wrapper with Interceptors & Retries",
+            "// " + "=" * 68,
+            "class HttpClientWrapper {",
+            "    private final HttpClient client;",
+            "    private final String baseUrl;",
+            "    private final String authType;",
+            "    private final Map<String, String> credentials;",
+            "    private final int maxRetries;",
+            "    private final boolean enableLogging;",
+            "",
+            "    public HttpClientWrapper(String baseUrl, String authType, Map<String, String> credentials, int maxRetries, boolean enableLogging) {",
+            "        this.baseUrl = baseUrl.endsWith(\"/\") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;",
+            "        this.authType = authType;",
+            "        this.credentials = credentials;",
+            "        this.maxRetries = maxRetries;",
+            "        this.enableLogging = enableLogging;",
+            "        this.client = HttpClient.newBuilder()",
+            "            .connectTimeout(Duration.ofSeconds(10))",
+            "            .build();",
+            "    }",
+            "",
+            "    private void log(String level, String msg) {",
+            "        if (enableLogging) {",
+            "            System.out.println(\"[\" + level + \"] \" + msg);",
+            "        }",
+            "    }",
+            "",
+            "    public String sendRequest(String method, String path, String body) {",
+            "        int retries = 0;",
+            "        long delay = 1000;",
+            "        String url = baseUrl + path;",
+            "        while (true) {",
+            "            HttpRequest.Builder builder = HttpRequest.newBuilder()",
+            "                .uri(URI.create(url))",
+            "                .header(\"Content-Type\", \"application/json\");",
+            "",
+            "            if (\"Bearer Token\".equals(authType) && credentials.containsKey(\"token\")) {",
+            "                builder.header(\"Authorization\", \"Bearer \" + credentials.get(\"token\"));",
+            "            } else if (\"API Key\".equals(authType) && credentials.containsKey(\"apiKey\")) {",
+            "                builder.header(\"X-API-Key\", credentials.get(\"apiKey\"));",
+            "            }",
+            "",
+            "            if (body != null && (method.equals(\"POST\") || method.equals(\"PUT\") || method.equals(\"PATCH\"))) {",
+            "                builder.method(method, HttpRequest.BodyPublishers.ofString(body));",
+            "            } else {",
+            "                builder.method(method, HttpRequest.BodyPublishers.noBody());",
+            "            }",
+            "",
+            "            HttpRequest request = builder.build();",
+            "            log(\"INFO\", \"Sending \" + method + \" request to: \" + url);",
+            "",
+            "            try {",
+            "                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());",
+            "                int status = response.statusCode();",
+            "                log(\"INFO\", \"Response Status: \" + status);",
+            "",
+            "                if (status >= 200 && status < 300) {",
+            "                    return response.body();",
+            "                }",
+            "",
+            "                if (status == 429) {",
+            "                    String retryAfter = response.headers().firstValue(\"Retry-After\").orElse(null);",
+            "                    long sleepMs = delay;",
+            "                    if (retryAfter != null) {",
+            "                        try {",
+            "                            sleepMs = Long.parseLong(retryAfter) * 1000;",
+            "                        } catch (NumberFormatException e) {",
+            "                            sleepMs = delay;",
+            "                        }",
+            "                    }",
+            "                    log(\"WARNING\", \"429 Rate Limited. Cooling down for \" + sleepMs + \"ms...\");",
+            "                    Thread.sleep(sleepMs);",
+            "                    continue;",
+            "                }",
+            "",
+            "                if ((status == 502 || status == 503 || status == 504) && retries < maxRetries) {",
+            "                    log(\"WARNING\", \"Transient error \" + status + \". Retrying in \" + delay + \"ms...\");",
+            "                    Thread.sleep(delay);",
+            "                    retries++;",
+            "                    delay *= 2;",
+            "                    continue;",
+            "                }",
+            "",
+            "                String errBody = response.body();",
+            "                if (status == 401 || status == 403) {",
+            "                    throw new AuthenticationError(\"Auth failed: \" + errBody);",
+            "                } else if (status == 429) {",
+            "                    throw new RateLimitError(\"Rate limit exceeded.\");",
+            "                } else if (status >= 400 && status < 500) {",
+            "                    throw new ValidationError(\"Validation failed: \" + errBody);",
+            "                } else {",
+            "                    throw new ServerError(\"Server error: \" + errBody);",
+            "                }",
+            "",
+            "            } catch (IOException e) {",
+            "                if (retries < maxRetries) {",
+            "                    log(\"WARNING\", \"Network error: \" + e.getMessage() + \". Retrying in \" + delay + \"ms...\");",
+            "                    try { Thread.sleep(delay); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }",
+            "                    retries++;",
+            "                    delay *= 2;",
+            "                    continue;",
+            "                }",
+            "                throw new NetworkError(\"Network failed: \" + e.getMessage(), e);",
+            "            } catch (InterruptedException e) {",
+            "                Thread.currentThread().interrupt();",
+            "                throw new APIClientError(\"Request interrupted: \" + e.getMessage(), e);",
+            "            }",
+            "        }",
+            "    }",
+            "}",
             "",
             "/**",
             f" * Standalone Java REST Integration Examples for {api_name}.",
@@ -109,7 +255,15 @@ Return ONLY the raw Java code. Do not include markdown code blocks or conversati
 
         lines.append("")
         lines.append("    public static void main(String[] args) {")
-        lines.append("        HttpClient client = HttpClient.newHttpClient();")
+        
+        # Instantiate HttpClientWrapper
+        if auth_type == "Bearer Token":
+            lines.append("        Map<String, String> credentials = Map.of(\"token\", API_TOKEN);")
+            lines.append("        HttpClientWrapper client = new HttpClientWrapper(BASE_URL, \"Bearer Token\", credentials, 3, true);")
+        else:
+            lines.append("        Map<String, String> credentials = Map.of(\"apiKey\", API_KEY);")
+            lines.append("        HttpClientWrapper client = new HttpClientWrapper(BASE_URL, \"API Key\", credentials, 3, true);")
+            
         lines.append("")
 
         for i, ep in enumerate(endpoints, 1):
@@ -136,42 +290,22 @@ Return ONLY the raw Java code. Do not include markdown code blocks or conversati
 
             # URL setup
             if method in ["POST", "PUT", "PATCH"]:
-                lines.append(f"        String url = BASE_URL + {java_path};")
+                lines.append(f"        String urlPath = {java_path};")
             else:
-                lines.append(f"        String url = BASE_URL + {java_path} + \"?limit=10\";")
+                lines.append(f"        String urlPath = {java_path} + \"?limit=10\";")
 
-            # Request construction
+            # Request construction using HttpClientWrapper
             lines.append("        try {")
-            lines.append("            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()")
-            lines.append("                .uri(URI.create(url))")
-            lines.append("                .header(\"Content-Type\", \"application/json\");")
-
-            if auth_type == "Bearer Token":
-                lines.append("            requestBuilder.header(\"Authorization\", \"Bearer \" + API_TOKEN);")
-            elif auth_type == "API Key":
-                lines.append("            requestBuilder.header(\"X-API-Key\", API_KEY);")
-
-            # Configure Method & Body
             if method in ["POST", "PUT", "PATCH"]:
                 lines.append("            String payload = \"{\\\"example_key\\\": \\\"example_value\\\"}\";")
-                lines.append(f"            requestBuilder.method(\"{method}\", HttpRequest.BodyPublishers.ofString(payload));")
+                lines.append(f"            String response = client.sendRequest(\"{method}\", urlPath, payload);")
             else:
-                lines.append(f"            requestBuilder.method(\"{method}\", HttpRequest.BodyPublishers.noBody());")
+                lines.append(f"            String response = client.sendRequest(\"{method}\", urlPath, null);")
 
             lines.extend([
-                "            ",
-                "            System.out.println(\"Sending request to: \" + url);",
-                "            HttpRequest request = requestBuilder.build();",
-                "            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());",
-                "            ",
-                "            System.out.println(\"Response Status: \" + response.statusCode());",
-                "            if (response.statusCode() >= 200 && response.statusCode() < 300) {",
-                "                System.out.println(\"Response: \" + response.body());",
-                "            } else {",
-                "                System.err.println(\"Request Failed: \" + response.statusCode() + \" - \" + response.body());",
-                "            }",
-                "        } catch (IOException | InterruptedException e) {",
-                "            System.err.println(\"Execution Error: \" + e.getMessage());",
+                "            System.out.println(\"Response Data: \" + response);",
+                "        } catch (APIClientError e) {",
+                "            System.err.println(\"Error encountered: \" + e.getMessage());",
                 "        }"
             ])
             lines.append("")

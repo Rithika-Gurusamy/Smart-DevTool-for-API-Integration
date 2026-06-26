@@ -17,24 +17,50 @@ model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 if api_key and HAS_GEMINI:
     genai.configure(api_key=api_key)
 
-def generate_wrapper(api_metadata: dict, language: str, use_case: str) -> str:
+def generate_wrapper(api_metadata: dict, language: str, use_case: str, stack_name: str = None) -> str:
     """
-    Generates a complete client wrapper class for the target language.
+    Generates a complete client wrapper class for the target language and stack.
     """
-    from generators import get_generator
+    from generators import get_stack_generator
     
-    # Instantiate the appropriate generator using the project API key setting
-    gen = get_generator(language, api_key=api_key)
-    return gen.generate(api_metadata, use_case)
+    if not stack_name:
+        lang_lower = language.lower()
+        if "python" in lang_lower:
+            stack_name = "Generic Python"
+        elif "javascript" in lang_lower or "typescript" in lang_lower:
+            stack_name = "Vanilla JavaScript"
+        elif "java" in lang_lower:
+            stack_name = "Generic Java"
+        elif "c#" in lang_lower or "csharp" in lang_lower:
+            stack_name = "Generic .NET"
+        else:
+            stack_name = "Generic Python"
+            
+    stack_gen = get_stack_generator(stack_name, api_key=api_key)
+    return stack_gen.generate_sdk(api_metadata, use_case)
 
-def generate_rest_integration(api_metadata: dict, language: str, use_case: str) -> str:
+def generate_rest_integration(api_metadata: dict, language: str, use_case: str, stack_name: str = None) -> str:
     """
-    Generates standalone REST integration code for the target language.
+    Generates standalone REST integration code for the target language and stack.
     """
-    from generators import get_rest_generator
+    from generators import get_stack_generator
     
-    gen = get_rest_generator(language, api_key=api_key)
-    return gen.generate_rest(api_metadata, use_case)
+    if not stack_name:
+        lang_lower = language.lower()
+        if "python" in lang_lower:
+            stack_name = "Generic Python"
+        elif "javascript" in lang_lower or "typescript" in lang_lower:
+            stack_name = "Vanilla JavaScript"
+        elif "java" in lang_lower:
+            stack_name = "Generic Java"
+        elif "c#" in lang_lower or "csharp" in lang_lower:
+            stack_name = "Generic .NET"
+        else:
+            stack_name = "Generic Python"
+            
+    stack_gen = get_stack_generator(stack_name, api_key=api_key)
+    return stack_gen.generate_rest(api_metadata, use_case)
+
 
 def generate_postman_collection(api_metadata: dict) -> str:
     """

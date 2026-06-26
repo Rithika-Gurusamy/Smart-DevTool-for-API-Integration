@@ -55,7 +55,7 @@ Endpoints to implement in the wrapper (ONLY generate methods for these):
 {endpoints_str}
 
 Follow these strict requirements:
-1. Imports: Use the `requests` library and standard library modules only. Include typing imports (`Dict`, `Any`, `Optional`, `List`, `Union`).
+1. Imports: Use the `requests` library, `time`, `logging`, and standard library modules only. Include typing imports (`Dict`, `Any`, `Optional`, `List`, `Union`).
 2. Exceptions:
    - Generate a base custom exception `APIClientError(Exception)`.
    - Subclass it into:
@@ -63,41 +63,28 @@ Follow these strict requirements:
      * `ValidationError(APIClientError)`
      * `RateLimitError(APIClientError)`
      * `ServerError(APIClientError)`
-3. Client Class:
-   - Name: `{class_name}`
+     * `NetworkError(APIClientError)`
+     * `TimeoutError(APIClientError)`
+3. Centralized HTTPClient Base Class:
+   - Generate a reusable `HTTPClient` class containing:
+     * Request Interceptor: Automatically maps auth credentials (Bearer Token, API Key, Basic Auth, OAuth2), Content-Type, Accept headers, and adds configurable logging hooks and custom request IDs.
+     * Response Interceptor: Validates status codes, maps custom exceptions, and intercepts 401 to run automatic token refresh.
+     * Automatic Rate-limiting & Retries: Enforces configurable exponential backoff and throttles dynamically using the `Retry-After` header on 429. Retries transient failures (502, 503, 504).
+4. Client SDK Wrapper Class `{class_name}`:
+   - Inherits from `HTTPClient`.
    - Constructor (`__init__`):
      * Expose auth params matching '{auth_type}' (e.g. `api_key: Optional[str] = None` or `token: Optional[str] = None`).
      * Expose `base_url: str` with a default value.
      * Validate auth presence; raise `AuthenticationError` if missing.
-     * Initialize a `requests.Session()` object.
-     * Automatically apply authentication headers/credentials to the session so that all subsequent requests automatically carry authentication. E.g.
-       - Bearer Token: session.headers['Authorization'] = f'Bearer {{token}}'
-       - API Key: session.headers['X-API-Key'] = api_key (or standard headers)
-       - Basic Auth: session.auth = (api_key, '')
-       - OAuth2: scaffold header setup.
-4. Request Helper method:
-   - Implement a private `_request(self, method: str, path: str, ...)` method that handles:
-     * Full URL building.
-     * Executing requests via the session.
-     * Raising specific custom exceptions based on HTTP status code (401/403 -> AuthenticationError, 429 -> RateLimitError, 400/422 -> ValidationError, 5xx -> ServerError, otherwise general APIClientError).
-     * Parsing and returning the JSON response as a dictionary.
+     * Call `super().__init__(base_url, auth_strategy, credentials)` to register parameters.
 5. Endpoint Methods:
-   - Create clear, type-hinted methods for each endpoint.
+   - Create clear, type-hinted methods for each endpoint invoking `self._request(method, path_str, ...)` inherited from the base client.
    - Method names must be derived cleanly (e.g., `POST /customers` -> `create_customer`, `GET /customers/{{id}}` -> `get_customer`).
-   - Extract and expose path parameters (e.g., `id: str` or `customer_id: str`) directly as required arguments in the method signature.
-   - Accept payload/body parameters (`data: Optional[Dict[str, Any]] = None` or individual arguments) and query parameters.
+   - Extract and expose path parameters directly as required arguments in the method signature.
    - Construct path dynamically by replacing `{{param_name}}` with the parameter value.
-   - Provide a comprehensive Google-style docstring for every method containing:
-     * Brief summary / Purpose.
-     * Args (names, types, description).
-     * Returns (type, description).
-     * Raises (exceptions).
-     * Code example showing how to call the method using an instance of the class.
+   - Provide a comprehensive Google-style docstring containing raising exceptions and code examples.
 6. Runnable Usage Example Block:
-   - Add a `if __name__ == "__main__":` block at the bottom of the file showing complete example code:
-     * Instantiating the client (using an environment variable or dummy key).
-     * Invoking the implemented methods with sample payloads.
-     * Handling exceptions gracefully with `try/except APIClientError as e:`.
+   - Add a `if __name__ == "__main__":` block at the bottom showing how to invoke methods with sample payloads and handle exceptions gracefully.
 
 Return ONLY the raw Python code. Do not wrap it in markdown code blocks or add any conversational text.
 """
@@ -121,14 +108,11 @@ Return ONLY the raw Python code. Do not wrap it in markdown code blocks or add a
         # Fallback to local template matching all 13 requirements
         return self._generate_fallback(class_name, auth_type, auth_desc, endpoints)
 
-    def _generate_fallback(self, class_name: str, auth_type: str, auth_desc: str, endpoints: list) -> str:
-        """
-        Creates a high-quality production-ready Python SDK fallback class when LLM fails or is missing.
-        """
         lines = [
             f'# Python SDK Client for {class_name}',
             '# Generated dynamically from API specification endpoints',
             'import os',
+            'import time',
             'import requests',
             'from typing import Any, Dict, List, Optional, Union',
             '',
@@ -152,82 +136,147 @@ Return ONLY the raw Python code. Do not wrap it in markdown code blocks or add a
             '    """Raised on 5xx server issues."""',
             '    pass',
             '',
-            f'class {class_name}:',
+            'class NetworkError(APIClientError):',
+            '    """Raised on transient network connection errors."""',
+            '    pass',
+            '',
+            'class TimeoutError(APIClientError):',
+            '    """Raised on HTTP request timeouts."""',
+            '    pass',
+            '',
+            'class HTTPClient:',
+            '    """Centralized Shared HTTP Client executing request pipelines."""',
+            '    def __init__(self, base_url: str, auth_strategy: str, credentials: Dict[str, Any], max_retries: int = 3, backoff_factor: float = 2.0, enable_logging: bool = False):',
+            '        self.base_url = base_url.rstrip("/")',
+            '        self.auth_strategy = auth_strategy',
+            '        self.credentials = credentials',
+            '        self.max_retries = max_retries',
+            '        self.backoff_factor = backoff_factor',
+            '        self.enable_logging = enable_logging',
+            '        self.session = requests.Session()',
+            '        self.session.headers.update({',
+            '            "Content-Type": "application/json",',
+            '            "Accept": "application/json"',
+            '        })',
+            '        self._apply_auth()',
+            '',
+            '    def _apply_auth(self):',
+            '        if self.auth_strategy == "Bearer Token":',
+            '            self.session.headers["Authorization"] = f"Bearer {self.credentials.get(\'token\')}"',
+            '        elif self.auth_strategy == "API Key":',
+            '            self.session.headers["X-API-Key"] = self.credentials.get("api_key")',
+            '        elif self.auth_strategy == "Basic Auth":',
+            '            self.session.auth = (self.credentials.get("username"), self.credentials.get("password", ""))',
+            '',
+            '    def _log(self, level: str, msg: str):',
+            '        if self.enable_logging:',
+            '            print(f"[{level}] {msg}")',
+            '',
+            '    def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:',
+            '        url = f"{self.base_url}{path}"',
+            '        retries = 0',
+            '        delay = 1.0',
+            '        while True:',
+            '            self._log("DEBUG", f"Request: {method} {url} | Params: {params} | Data: {data}")',
+            '            try:',
+            '                self.session.headers["X-Request-ID"] = f"req_{int(time.time() * 1000)}"',
+            '                response = self.session.request(method, url, params=params, json=data, timeout=10)',
+            '                status = response.status_code',
+            '                self._log("DEBUG", f"Response Status: {status}")',
+            '                ',
+            '                if 200 <= status < 300:',
+            '                    return response.json() if response.text.strip() else {}',
+            '                ',
+            '                if status == 401 and "refresh_token" in self.credentials:',
+            '                    self._log("INFO", "401 Unauthorized. Refreshing token...")',
+            '                    if self._refresh_token():',
+            '                        self._apply_auth()',
+            '                        continue',
+            '                ',
+            '                if status == 429:',
+            '                    retry_after = response.headers.get("Retry-After")',
+            '                    if retry_after:',
+            '                        try:',
+            '                            sleep_seconds = float(retry_after)',
+            '                        except ValueError:',
+            '                            sleep_seconds = delay',
+            '                        self._log("WARNING", f"429 Rate Limited. Cooling down for {sleep_seconds}s...")',
+            '                        time.sleep(sleep_seconds)',
+            '                        continue',
+            '                ',
+            '                if status in [502, 503, 504] and retries < self.max_retries:',
+            '                    self._log("WARNING", f"Transient error {status}. Retrying in {delay}s...")',
+            '                    time.sleep(delay)',
+            '                    retries += 1',
+            '                    delay *= self.backoff_factor',
+            '                    continue',
+            '                ',
+            '                if status in [401, 403]:',
+            '                    raise AuthenticationError(f"Authentication failed: {response.text}")',
+            '                elif status == 429:',
+            '                    raise RateLimitError("Rate limit exceeded.")',
+            '                elif 400 <= status < 500:',
+            '                    raise ValidationError(f"Validation failed: {response.text}")',
+            '                else:',
+            '                    raise ServerError(f"Server error: {response.text}")',
+            '            except requests.Timeout as e:',
+            '                if retries < self.max_retries:',
+            '                    time.sleep(delay)',
+            '                    retries += 1',
+            '                    delay *= self.backoff_factor',
+            '                    continue',
+            '                raise TimeoutError(f"Request timed out: {str(e)}")',
+            '            except requests.RequestException as e:',
+            '                if retries < self.max_retries:',
+            '                    time.sleep(delay)',
+            '                    retries += 1',
+            '                    delay *= self.backoff_factor',
+            '                    continue',
+            '                raise NetworkError(f"Network error: {str(e)}")',
+            '',
+            '    def _refresh_token(self) -> bool:',
+            '        return True',
+            '',
+            f'class {class_name}(HTTPClient):',
             '    """',
             f'    API Client Wrapper for {class_name}.',
             '    """',
         ]
-
+        
         # Init method
         if auth_type == "Bearer Token":
-            init_signature = "    def __init__(self, token: Optional[str] = None, base_url: str = 'https://api.example.com'):"
+            init_signature = "    def __init__(self, token: Optional[str] = None, base_url: str = 'https://api.example.com', max_retries: int = 3, enable_logging: bool = False):"
             init_body = [
                 "        self.token = token or os.getenv('API_TOKEN')",
                 "        if not self.token:",
                 "            raise AuthenticationError('Authentication token must be provided.')",
-                "        self.base_url = base_url.rstrip('/')",
-                "        self.session = requests.Session()",
-                "        self.session.headers.update({",
-                "            'Authorization': f'Bearer {self.token}',",
-                "            'Content-Type': 'application/json'",
-                "        })"
+                "        credentials = {'token': self.token}",
+                "        super().__init__(base_url, 'Bearer Token', credentials, max_retries=max_retries, enable_logging=enable_logging)"
             ]
         elif auth_type == "Basic Auth":
-            init_signature = "    def __init__(self, username: Optional[str] = None, password: Optional[str] = None, base_url: str = 'https://api.example.com'):"
+            init_signature = "    def __init__(self, username: Optional[str] = None, password: Optional[str] = None, base_url: str = 'https://api.example.com', max_retries: int = 3, enable_logging: bool = False):"
             init_body = [
                 "        self.username = username or os.getenv('API_USERNAME')",
                 "        self.password = password or os.getenv('API_PASSWORD')",
                 "        if not self.username:",
                 "            raise AuthenticationError('Basic auth username must be provided.')",
-                "        self.base_url = base_url.rstrip('/')",
-                "        self.session = requests.Session()",
-                "        self.session.auth = (self.username, self.password or '')",
-                "        self.session.headers.update({",
-                "            'Content-Type': 'application/json'",
-                "        })"
+                "        credentials = {'username': self.username, 'password': self.password or ''}",
+                "        super().__init__(base_url, 'Basic Auth', credentials, max_retries=max_retries, enable_logging=enable_logging)"
             ]
         else: # API Key / None
-            init_signature = "    def __init__(self, api_key: Optional[str] = None, base_url: str = 'https://api.example.com'):"
+            init_signature = "    def __init__(self, api_key: Optional[str] = None, base_url: str = 'https://api.example.com', max_retries: int = 3, enable_logging: bool = False):"
             init_body = [
                 "        self.api_key = api_key or os.getenv('API_KEY')",
                 "        if not self.api_key:",
                 "            raise AuthenticationError('API Key must be provided.')",
-                "        self.base_url = base_url.rstrip('/')",
-                "        self.session = requests.Session()",
-                "        self.session.headers.update({",
-                "            'X-API-Key': self.api_key,",
-                "            'Content-Type': 'application/json'",
-                "        })"
+                "        credentials = {'api_key': self.api_key}",
+                "        super().__init__(base_url, 'API Key', credentials, max_retries=max_retries, enable_logging=enable_logging)"
             ]
-
+            
         lines.append(init_signature)
         lines.extend(init_body)
         lines.append("")
 
-        # Private _request helper
-        request_helper = [
-            "    def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:",
-            "        url = f'{self.base_url}{path}'",
-            "        try:",
-            "            response = self.session.request(method, url, params=params, json=data)",
-            "            status_code = response.status_code",
-            "            if status_code in [401, 403]:",
-            "                raise AuthenticationError(f'Authentication failed: {response.text}')",
-            "            elif status_code == 429:",
-            "                raise RateLimitError('Rate limit exceeded.')",
-            "            elif 400 <= status_code < 500:",
-            "                raise ValidationError(f'Validation/Client error: {response.text}')",
-            "            elif status_code >= 500:",
-            "                raise ServerError(f'Internal server error: {response.text}')",
-            "            ",
-            "            if response.text.strip():",
-            "                return response.json()",
-            "            return {}",
-            "        except requests.RequestException as e:",
-            "            raise APIClientError(f'Network connection failed: {str(e)}')",
-            ""
-        ]
-        lines.extend(request_helper)
 
         # Endpoint Methods
         for ep in endpoints:

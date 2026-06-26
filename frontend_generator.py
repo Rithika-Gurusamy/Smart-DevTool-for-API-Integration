@@ -211,7 +211,18 @@ export default {model_name}Response;
 """
     return content
 
-def generate_frontend_client_files(blueprint: dict) -> dict:
+def generate_frontend_client_files(blueprint: dict) -> tuple:
+    framework = blueprint.get("framework", "React")
+    from generators.target_stacks import get_stack_generator
+    import os
+    api_key = os.getenv("GEMINI_API_KEY")
+    stack_gen = get_stack_generator(framework, api_key=api_key)
+    
+    files = stack_gen.generate_frontend(blueprint)
+    total_crud_methods = sum(len(svc.get("endpoints", [])) for svc in blueprint.get("service_plan", []))
+    return files, total_crud_methods
+
+def generate_base_javascript_files(blueprint: dict) -> tuple:
     """
     Generate all files for the frontend networking and API service layers.
     Returns a dictionary mapping relative file paths to their file content string.
@@ -310,6 +321,8 @@ export const apiConfig = {{
   authStrategy: process.env.REACT_APP_AUTH_STRATEGY || '{auth_strategy}',
   defaultHeaders: {json.dumps(default_headers, indent=2)},
   isDevelopment: process.env.NODE_ENV === 'development',
+  enableLogging: process.env.REACT_APP_ENABLE_LOGGING === 'true',
+  maxRetries: parseInt(process.env.REACT_APP_MAX_RETRIES || '3', 10),
 }};
 
 export default apiConfig;
@@ -327,6 +340,12 @@ REACT_APP_API_TIMEOUT={timeout}
 
 # Authentication Strategy (options: Bearer Token, JWT, API Key, Basic Auth, None)
 REACT_APP_AUTH_STRATEGY={auth_strategy}
+
+# Enable logging of requests, responses, and errors
+REACT_APP_ENABLE_LOGGING=false
+
+# Maximum retry attempts for transient errors
+REACT_APP_MAX_RETRIES=3
 
 # Placeholders for API Keys / Credentials (DO NOT commit sensitive values!)
 REACT_APP_API_KEY_DEV=your_dev_api_key_placeholder
@@ -450,9 +469,12 @@ const apiClient = axios.create({{
   headers: apiConfig.defaultHeaders
 }});
 
-// Request Interceptor: Inject Auth headers dynamically
+// Request Interceptor: Dynamic logging & Auth injection
 apiClient.interceptors.request.use(
   (config) => {{
+    if (apiConfig.enableLogging) {{
+      console.log(`[API Request] ${{config.method.toUpperCase()}} ${{config.url}}`, config.data || '');
+    }}
     const token = tokenStorage.getToken();
     if (token) {{
       if (apiConfig.authStrategy === 'Bearer Token' || apiConfig.authStrategy === 'JWT') {{
@@ -467,15 +489,63 @@ apiClient.interceptors.request.use(
     }}
     return config;
   }},
-  (error) => Promise.reject(error)
+  (error) => {{
+    if (apiConfig.enableLogging) {{
+      console.error('[API Request Error]', error);
+    }}
+    return Promise.reject(error);
+  }}
 );
 
-// Response Interceptor: Centralized formatting & auto-refresh
+// Response Interceptor: Centralized formatting, logging, transient retries, and token refresh
 apiClient.interceptors.response.use(
-  (response) => response.data,
+  (response) => {{
+    if (apiConfig.enableLogging) {{
+      console.log(`[API Response] Success: ${{response.status}}`, response.data);
+    }}
+    return response.data;
+  }},
   async (error) => {{
     const originalRequest = error.config;
+    if (!originalRequest) {{
+      return Promise.reject(handleAPIError(error));
+    }}
     const status = error.response ? error.response.status : null;
+    if (apiConfig.enableLogging) {{
+      console.error(`[API Response Error] Status: ${{status}}`, error.message);
+    }}
+    
+    // Initialize retry state
+    originalRequest.__retryCount = originalRequest.__retryCount || 0;
+    
+    // 1. Handle 429 Rate Limiting
+    if (status === 429) {{
+      const retryAfter = error.response.headers['retry-after'];
+      let delayMs = 1000 * Math.pow(2, originalRequest.__retryCount);
+      if (retryAfter) {{
+        delayMs = isNaN(retryAfter) 
+          ? Date.parse(retryAfter) - Date.now() 
+          : parseInt(retryAfter, 10) * 1000;
+        if (delayMs < 0) delayMs = 1000;
+      }}
+      if (apiConfig.enableLogging) {{
+        console.warn(`[API Client] 429 Rate Limited. Retrying in ${{delayMs}}ms...`);
+      }}
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return apiClient(originalRequest);
+    }}
+    
+    // 2. Handle Transient Error Retries (502, 503, 504 or network/timeout)
+    const isTransient = [502, 503, 504].includes(status) || !status || error.code === 'ECONNABORTED';
+    if (isTransient && originalRequest.__retryCount < apiConfig.maxRetries) {{
+      originalRequest.__retryCount += 1;
+      const backoffDelay = 1000 * Math.pow(2, originalRequest.__retryCount);
+      if (apiConfig.enableLogging) {{
+        console.warn(`[API Client] Transient error detected (${{status || 'Network/Timeout'}}). Retrying attempt ${{originalRequest.__retryCount}} in ${{backoffDelay}}ms...`);
+      }}
+      await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      return apiClient(originalRequest);
+    }}
     {refresh_interceptor}
     return Promise.reject(handleAPIError(error));
   }}

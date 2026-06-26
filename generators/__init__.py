@@ -4,6 +4,7 @@ from generators.rest_python import PythonRESTGenerator
 from generators.rest_javascript import JavaScriptRESTGenerator
 from generators.rest_java import JavaRESTGenerator
 from generators.rest_csharp import CSharpRESTGenerator
+from generators.target_stacks import get_stack_generator, validate_compatibility, LANGUAGE_STACKS
 
 def get_generator(language: str, api_key: str = None):
     """
@@ -34,3 +35,4 @@ def get_rest_generator(language: str, api_key: str = None):
         return CSharpRESTGenerator(api_key=api_key)
     else:
         return PythonRESTGenerator(api_key=api_key)
+
