@@ -3,7 +3,7 @@ import json
 import base64
 import os
 from parser import fetch_docs, save_uploaded_file, extract_text_from_file
-from analyzer import analyze_api_docs
+from analyzer import analyze_api_docs, analyze_frontend_integration
 from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram, generate_rest_integration
 from spec_parser import detect_and_parse_spec, SpecParserError
 
@@ -244,16 +244,23 @@ with col_form:
 with col_meta:
     st.markdown("### ⚙️ Target Options")
     lang_input = st.selectbox(
-        "Target Language:",
+        "Target Language (SDK & REST):",
         ["Python", "JavaScript", "TypeScript", "Go", "Java", "C#"],
         index=["Python", "JavaScript", "TypeScript", "Go", "Java", "C#"].index(st.session_state["lang_input"])
     )
     
+    framework_input = st.selectbox(
+        "Frontend Framework (Blueprint):",
+        ["React"],
+        index=0
+    )
+    
     st.markdown("<br>", unsafe_allow_html=True)
-    generate_btn = st.button("⚡ Generate SDK & Integration Package", use_container_width=True, type="primary")
+    generate_btn = st.button("⚡ Generate SDK & REST", use_container_width=True, type="primary")
+    analyze_frontend_btn = st.button("🔍 Analyze Frontend Integration", use_container_width=True)
 
 # Run Generation Process
-if generate_btn:
+if generate_btn or analyze_frontend_btn:
     if "parsed_spec" in st.session_state:
         del st.session_state["parsed_spec"]
     is_valid = True
@@ -284,7 +291,7 @@ if generate_btn:
         
     if is_valid:
         # Step 1: Documentation Ingestion status
-        with st.status("🛠️ Processing API Package...", expanded=True) as status:
+        with st.status("🛠 ... Processing API Ingestion ...", expanded=True) as status:
             if doc_source == "Documentation URL":
                 status.update(label="Scraping HTML Documentation URL...", state="running")
                 doc_result = fetch_docs(url_input)
@@ -323,35 +330,244 @@ if generate_btn:
                 st.write(f"- **Endpoints Found:** {len(ps.get('endpoints', []))}")
                 st.write(f"- **Auth Schemes Defined:** {len(ps.get('authentication', []))}")
             
-            # Step 2: Analyzer
-            status.update(label="Analyzing API details and mapping endpoints...", state="running")
-            analysis = analyze_api_docs(
-                url=source_url,
-                scraped_text=scraped_text,
-                use_case=use_case_input,
-                language=lang_input
-            )
-            
-            # Step 3: Code Gen
-            status.update(label="Building wrapper class SDK & Postman collection...", state="running")
-            wrapper_code = generate_wrapper(analysis, lang_input, use_case_input)
-            rest_code = generate_rest_integration(analysis, lang_input, use_case_input)
-            postman_json = generate_postman_collection(analysis)
-            sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
-            
-            status.update(label="Assets Generated Successfully!", state="complete")
+            if generate_btn:
+                # Step 2: Analyzer
+                status.update(label="Analyzing API details and mapping endpoints...", state="running")
+                analysis = analyze_api_docs(
+                    url=source_url,
+                    scraped_text=scraped_text,
+                    use_case=use_case_input,
+                    language=lang_input
+                )
+                
+                # Step 3: Code Gen
+                status.update(label="Building wrapper class SDK & Postman collection...", state="running")
+                wrapper_code = generate_wrapper(analysis, lang_input, use_case_input)
+                rest_code = generate_rest_integration(analysis, lang_input, use_case_input)
+                postman_json = generate_postman_collection(analysis)
+                sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
+                
+                # Store SDK & REST results in session state
+                st.session_state["workflow_active"] = "sdk_rest"
+                st.session_state["analysis"] = analysis
+                st.session_state["wrapper_code"] = wrapper_code
+                st.session_state["rest_code"] = rest_code
+                st.session_state["postman_json"] = postman_json
+                st.session_state["sequence_mermaid"] = sequence_mermaid
+                st.session_state["language"] = lang_input
+            else:
+                # Step 2: Frontend Analyzer
+                status.update(label="Analyzing API and generating Frontend Integration Blueprint...", state="running")
+                blueprint = analyze_frontend_integration(
+                    url=source_url,
+                    scraped_text=scraped_text,
+                    framework=framework_input
+                )
+                
+                # Store Frontend Blueprint in session state
+                st.session_state["workflow_active"] = "frontend_blueprint"
+                st.session_state["frontend_blueprint"] = blueprint
+                st.session_state["framework"] = framework_input
+                
+            status.update(label="Analysis Completed Successfully!", state="complete")
+            st.session_state["result_ready"] = True
+
+def dict_to_tree(d, indent=""):
+    tree = ""
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(v, (dict, list)):
+                tree += f"{indent}├── {k}/\n"
+                tree += dict_to_tree(v, indent + "│   ")
+            else:
+                tree += f"{indent}├── {k}\n"
+    elif isinstance(d, list):
+        for item in d:
+            if isinstance(item, str):
+                tree += f"{indent}├── {item}\n"
+            elif isinstance(item, dict):
+                tree += dict_to_tree(item, indent)
+    return tree
+
+def render_frontend_blueprint_dashboard():
+    blueprint = st.session_state.get("frontend_blueprint", {})
+    framework = st.session_state.get("framework", "React")
+    
+    st.divider()
+    st.markdown("### 🔍 Frontend Integration Blueprint Dashboard")
+    st.markdown("This blueprint outlines the planned frontend client architecture, resources, and configuration based on the parsed spec.")
+    
+    resource_groups = blueprint.get("resource_groups", [])
+    crud_metadata = blueprint.get("crud_metadata", [])
+    auth_plan = blueprint.get("authentication_plan", {})
+    dependencies = blueprint.get("endpoint_dependencies", [])
+    service_plan = blueprint.get("service_plan", [])
+    model_plan = blueprint.get("model_plan", [])
+    config_plan = blueprint.get("configuration_plan", {})
+    folder_structure = blueprint.get("folder_structure", {})
+    
+    total_resources = len(resource_groups)
+    total_crud = len(crud_metadata)
+    auth_strategy = auth_plan.get("strategy", "None")
+    
+    # 4-column Metrics Panel
+    col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
+    with col_meta1:
+        st.markdown(f"""
+        <div class="custom-card">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Language/Framework</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{framework}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_meta2:
+        st.markdown(f"""
+        <div class="custom-card">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Resource Groups</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{total_resources} Groups</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_meta3:
+        st.markdown(f"""
+        <div class="custom-card">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Auth Strategy</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{auth_strategy}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_meta4:
+        st.markdown(f"""
+        <div class="custom-card">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Downloadable File</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #fb7185; margin-top: 0.25rem;">frontend_blueprint.json</div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Save results in session state to persist between page elements
-        st.session_state["result_ready"] = True
-        st.session_state["analysis"] = analysis
-        st.session_state["wrapper_code"] = wrapper_code
-        st.session_state["rest_code"] = rest_code
-        st.session_state["postman_json"] = postman_json
-        st.session_state["sequence_mermaid"] = sequence_mermaid
-        st.session_state["language"] = lang_input
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Tabs
+    tab_resources, tab_auth, tab_services, tab_models, tab_config = st.tabs([
+        "📁 Resource Groups & CRUD",
+        "🔒 Authentication Plan",
+        "💼 Service & Dependency Plan",
+        "💾 Data Models (Schemas)",
+        "🔧 Project Config & Structure"
+    ])
+    
+    with tab_resources:
+        st.markdown("### Resource Groups & CRUD Detection")
+        st.markdown("Endpoints organized into logical frontend resource groups with detected CRUD patterns.")
+        
+        # Display CRUD Metadata
+        st.markdown("#### 🔄 CRUD Pattern Registry")
+        if crud_metadata:
+            crud_rows = []
+            for item in crud_metadata:
+                crud_rows.append(f"| `{item.get('method', '')}` | `{item.get('path', '')}` | **{item.get('pattern', 'Unknown')}** |")
+            st.markdown("\n".join([
+                "| Method | Endpoint Path | CRUD Pattern |",
+                "|---|---|---|",
+                *crud_rows
+            ]))
+        else:
+            st.info("No CRUD patterns detected.")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### 📁 Resource Groups Details")
+        for group in resource_groups:
+            st.markdown(f"##### 📦 {group.get('name', 'Unnamed Group')}")
+            st.markdown(f"*{group.get('description', '')}*")
+            for ep in group.get("endpoints", []):
+                st.markdown(f"- **{ep.get('method', '')}** `{ep.get('path', '')}` - {ep.get('description', '')}")
+            st.markdown("---")
+            
+    with tab_auth:
+        st.markdown("### Frontend Authentication Strategy")
+        st.markdown(f"**Strategy Type:** `{auth_strategy}`")
+        st.markdown(f"**Token Storage Suggestion:** `{auth_plan.get('token_storage_suggestion', 'Not specified')}`")
+        
+        st.markdown("#### 🔐 Auth Flow Endpoints")
+        st.markdown(f"- **Login:** `{auth_plan.get('login_endpoint', 'N/A')}`")
+        st.markdown(f"- **Logout:** `{auth_plan.get('logout_endpoint', 'N/A')}`")
+        st.markdown(f"- **Refresh Token:** `{auth_plan.get('refresh_token_endpoint', 'N/A')}`")
+        
+        st.markdown("#### ℹ️ Interaction Details")
+        st.info(auth_plan.get("description", "No details provided."))
+        
+    with tab_services:
+        st.markdown("### Service and Dependency Planning")
+        st.markdown("Overview of planned API service files and execution dependencies between endpoints.")
+        
+        st.markdown("#### 💼 Planned Services")
+        for svc in service_plan:
+            st.markdown(f"##### 🛠️ `{svc.get('service_name', 'UnnamedService')}`")
+            st.markdown(f"*{svc.get('description', '')}*")
+            st.markdown("**Assigned Endpoints:**")
+            for ep in svc.get("endpoints", []):
+                st.markdown(f"- `{ep}`")
+            st.markdown("---")
+            
+        st.markdown("#### 🔗 Endpoint Dependency Graph")
+        if dependencies:
+            for dep in dependencies:
+                st.markdown(f"**Prerequisite:** `{dep.get('pre_requisite', '')}` ➔ **Dependent:** `{dep.get('dependent', '')}`")
+                st.markdown(f"> *Reason:* {dep.get('reason', '')}")
+                st.markdown("")
+        else:
+            st.info("No explicit endpoint dependencies identified.")
+            
+    with tab_models:
+        st.markdown("### Planned Data Models (Schemas)")
+        st.markdown("Reusable frontend data entities derived from API schemas.")
+        
+        for model in model_plan:
+            st.markdown(f"#### 💾 Model: `{model.get('model_name', 'UnnamedModel')}`")
+            st.markdown(f"*{model.get('description', '')}*")
+            
+            fields = model.get("fields", {})
+            if fields:
+                field_rows = []
+                for field_name, field_type in fields.items():
+                    field_rows.append(f"| `{field_name}` | `{field_type}` |")
+                st.markdown("\n".join([
+                    "| Field Name | Type |",
+                    "|---|---|",
+                    *field_rows
+                ]))
+            else:
+                st.info("No fields specified for this model.")
+            st.markdown("---")
+            
+    with tab_config:
+        st.markdown("### Configuration & Project Structure")
+        
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            st.markdown("#### ⚙️ Configuration Plan")
+            st.write(f"- **API Base URL:** `{config_plan.get('api_base_url', 'N/A')}`")
+            st.write(f"- **Timeout:** `{config_plan.get('timeout_ms', '10000')} ms`")
+            st.write(f"- **CORS Configuration Required:** `{config_plan.get('cors_required', False)}`")
+            st.write("- **Default Headers:**")
+            st.json(config_plan.get("default_headers", {}))
+            
+        with col_c2:
+            st.markdown("#### 📂 Recommended Folder Structure")
+            tree_text = dict_to_tree(folder_structure)
+            st.code(tree_text, language="text")
+            
+    st.divider()
+    # Download JSON
+    blueprint_json = json.dumps(blueprint, indent=2)
+    b64_blueprint = base64.b64encode(blueprint_json.encode()).decode()
+    href_blueprint = f'<a href="data:file/txt;base64,{b64_blueprint}" download="frontend_blueprint.json" class="download-btn">📥 Download frontend_blueprint.json</a>'
+    st.markdown(href_blueprint, unsafe_allow_html=True)
 
 # Display outputs if generation is complete
 if st.session_state.get("result_ready"):
+    workflow_active = st.session_state.get("workflow_active", "sdk_rest")
+    
+    if workflow_active == "frontend_blueprint":
+        render_frontend_blueprint_dashboard()
+        st.stop()
+        
     analysis = st.session_state["analysis"]
     
     # If target language changes, dynamically regenerate wrappers and REST integration codes

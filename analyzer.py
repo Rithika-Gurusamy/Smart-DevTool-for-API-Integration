@@ -198,3 +198,372 @@ def get_mock_analysis(url: str, use_case: str, language: str) -> dict:
                 }
             ]
         }
+
+def analyze_frontend_integration(url: str, scraped_text: str, framework: str) -> dict:
+    """
+    Sends documentation context and framework preferences to Gemini.
+    Generates a structured Frontend Integration Blueprint.
+    If Gemini API isn't configured, falls back to high-quality mock models.
+    """
+    if not api_key or not HAS_GEMINI:
+        return get_mock_frontend_analysis(url, framework)
+
+    prompt = f"""
+You are a Lead Frontend Architect. Analyze the following API documentation text and planned target frontend framework.
+URL: {url}
+Target Frontend Framework: {framework}
+Scraped Text/Parsed Spec (may be truncated or empty if URL fetch failed/blocked):
+---
+{scraped_text[:30000]}
+---
+
+Step 1: Resource Grouping. Organize all endpoints into logical resource-based groups (e.g. Authentication, Users, Products, Orders).
+Step 2: CRUD Pattern Detection. For each endpoint, determine the CRUD pattern it represents (Create, Read, Update, Delete, Search/List).
+Step 3: Authentication Flow Analysis. Plan how the frontend will authenticate (strategy e.g. JWT, Bearer Token, API Key, Session-based), identify the login/logout/refresh endpoints, and suggest frontend storage (e.g. localStorage, HttpOnly Cookie).
+Step 4: Endpoint Dependency Analysis. Map dependent sequences (e.g., login must succeed before profile call, customer must be created before checkout session).
+Step 5: Service Planning. Organize client integrations into services (e.g. authService, productService). Do not write code; assign endpoints to planned services.
+Step 6: Model Planning. Design reusable data schemas/entities (e.g. User, Product, Order) that correspond to API requests and responses. Include fields and their primitive types.
+Step 7: Configuration Planning. Outline config defaults (base URL, content-type headers, timeout, etc.).
+Step 8: Recommended Folder Structure. Plan an organized frontend directory layout relative to "src/" tailored for API integration (e.g. api, services, models, config, hooks, utils).
+
+CRITICAL: If the Scraped Text is empty or limited, please use your pre-trained knowledge about the API at the URL: {url}.
+
+You MUST return your response as a valid JSON object matching the following structure:
+{{
+    "api_name": "Name of the API (e.g., Stripe, Twilio, OpenAI)",
+    "framework": "{framework}",
+    "resource_groups": [
+        {{
+            "name": "Resource Group Name (e.g. Authentication)",
+            "description": "Short description of this resource group's purpose",
+            "endpoints": [
+                {{
+                    "method": "POST",
+                    "path": "/login",
+                    "description": "User Login"
+                }}
+            ]
+        }}
+    ],
+    "crud_metadata": [
+        {{
+            "method": "POST",
+            "path": "/login",
+            "pattern": "Create (Session)"
+        }}
+    ],
+    "authentication_plan": {{
+        "strategy": "JWT | Bearer Token | API Key | Session-based | None",
+        "login_endpoint": "POST /login (or empty if none)",
+        "logout_endpoint": "POST /logout (or empty if none)",
+        "refresh_token_endpoint": "POST /refresh_token (or empty if none)",
+        "token_storage_suggestion": "localStorage | HttpOnly Cookie | Memory",
+        "description": "Explain how the token or auth keys should be stored, passed, and refreshed."
+    }},
+    "endpoint_dependencies": [
+        {{
+            "pre_requisite": "POST /v1/customers",
+            "dependent": "POST /v1/payment_intents",
+            "reason": "Must create a customer profile to associate payment intents with billing records."
+        }}
+    ],
+    "service_plan": [
+        {{
+            "service_name": "authService",
+            "description": "Responsible for login, logout, and token refresh endpoints",
+            "endpoints": ["POST /login", "POST /logout"]
+        }}
+    ],
+    "model_plan": [
+        {{
+            "model_name": "User",
+            "description": "Representation of the user account data.",
+            "fields": {{
+                "id": "string",
+                "email": "string",
+                "name": "string"
+            }}
+        }}
+    ],
+    "configuration_plan": {{
+        "api_base_url": "Base URL of the API",
+        "default_headers": {{
+            "Content-Type": "application/json"
+        }},
+        "timeout_ms": 10000,
+        "cors_required": true
+    }},
+    "folder_structure": {{
+        "src": {{
+            "api": {{
+                "config": ["apiConfig.js"],
+                "services": ["authService.js", "productService.js"],
+                "models": ["types.ts"],
+                "hooks": ["useAuth.js"]
+            }}
+        }}
+    }}
+}}
+Return ONLY the raw JSON object. Do not add any conversational text, markdown formatting, or HTML tags. Just raw JSON.
+"""
+    try:
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        
+        # Clean any accidental markdown wrap
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        
+        analysis = json.loads(text)
+        return analysis
+    except Exception as e:
+        print(f"Gemini API frontend blueprint analysis failed ({str(e)}). Falling back to mock data.")
+        return get_mock_frontend_analysis(url, framework)
+
+def get_mock_frontend_analysis(url: str, framework: str) -> dict:
+    """
+    Mock data fallback for popular APIs for frontend blueprint.
+    """
+    clean_url = url.lower()
+    
+    if "stripe" in clean_url:
+        return {
+            "api_name": "Stripe Payments",
+            "framework": framework,
+            "resource_groups": [
+                {
+                    "name": "Customers",
+                    "description": "Manage user billing profiles, address info, and payment records",
+                    "endpoints": [
+                        {"method": "POST", "path": "/v1/customers", "description": "Create a new customer profile"},
+                        {"method": "GET", "path": "/v1/customers/{id}", "description": "Retrieve customer profile details"}
+                    ]
+                },
+                {
+                    "name": "Payments",
+                    "description": "Initiate, capture, and track billing charge flows",
+                    "endpoints": [
+                        {"method": "POST", "path": "/v1/payment_intents", "description": "Create payment transaction session"},
+                        {"method": "POST", "path": "/v1/refunds", "description": "Initiate refund for transaction"}
+                    ]
+                }
+            ],
+            "crud_metadata": [
+                {"method": "POST", "path": "/v1/customers", "pattern": "Create"},
+                {"method": "GET", "path": "/v1/customers/{id}", "pattern": "Read"},
+                {"method": "POST", "path": "/v1/payment_intents", "pattern": "Create"},
+                {"method": "POST", "path": "/v1/refunds", "pattern": "Create"}
+            ],
+            "authentication_plan": {
+                "strategy": "Bearer Token",
+                "login_endpoint": "",
+                "logout_endpoint": "",
+                "refresh_token_endpoint": "",
+                "token_storage_suggestion": "Secure HTTP-Only Cookies / Backend Server Session",
+                "description": "Frontend should not store Stripe secret keys directly. Requests should pass through a secure backend proxy, or use Stripe Elements tokenization in the client, passing tokenized cards to a backend server."
+            },
+            "endpoint_dependencies": [
+                {
+                    "pre_requisite": "POST /v1/customers",
+                    "dependent": "POST /v1/payment_intents",
+                    "reason": "Must construct a customer account record before associating payment intents for billing records."
+                }
+            ],
+            "service_plan": [
+                {
+                    "service_name": "customerService",
+                    "description": "Manages Stripe customers CRUD operations",
+                    "endpoints": ["POST /v1/customers", "GET /v1/customers/{id}"]
+                },
+                {
+                    "service_name": "paymentService",
+                    "description": "Manages Stripe transaction sessions and intents",
+                    "endpoints": ["POST /v1/payment_intents", "POST /v1/refunds"]
+                }
+            ],
+            "model_plan": [
+                {
+                    "model_name": "Customer",
+                    "description": "Represents a Stripe customer resource",
+                    "fields": {
+                        "id": "string",
+                        "email": "string",
+                        "name": "string",
+                        "balance": "number"
+                    }
+                },
+                {
+                    "model_name": "PaymentIntent",
+                    "description": "Tracks charge state lifecycle",
+                    "fields": {
+                        "id": "string",
+                        "amount": "number",
+                        "currency": "string",
+                        "status": "string",
+                        "customer_id": "string"
+                    }
+                }
+            ],
+            "configuration_plan": {
+                "api_base_url": "https://api.stripe.com",
+                "default_headers": {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                "timeout_ms": 15000,
+                "cors_required": True
+            },
+            "folder_structure": {
+                "src": {
+                    "api": {
+                        "config": ["apiConfig.js"],
+                        "services": ["customerService.js", "paymentService.js"],
+                        "models": ["types.ts"],
+                        "hooks": ["usePayments.js"]
+                    }
+                }
+            }
+        }
+    elif "twilio" in clean_url:
+        return {
+            "api_name": "Twilio Messages",
+            "framework": framework,
+            "resource_groups": [
+                {
+                    "name": "SMS Dispatch",
+                    "description": "Outbound message deliveries and tracking logs",
+                    "endpoints": [
+                        {"method": "POST", "path": "/2010-04-01/Accounts/{AccountSid}/Messages.json", "description": "Dispatch outbound text message"},
+                        {"method": "GET", "path": "/2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json", "description": "Query specific message dispatch logs"}
+                    ]
+                }
+            ],
+            "crud_metadata": [
+                {"method": "POST", "path": "/2010-04-01/Accounts/{AccountSid}/Messages.json", "pattern": "Create"},
+                {"method": "GET", "path": "/2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json", "pattern": "Read"}
+            ],
+            "authentication_plan": {
+                "strategy": "Basic Auth",
+                "login_endpoint": "",
+                "logout_endpoint": "",
+                "refresh_token_endpoint": "",
+                "token_storage_suggestion": "Secure Server Environment Variables",
+                "description": "Auth credentials (Account SID & Auth Token) are basic-auth encoded. Do not include in frontend code to prevent credentials hijacking."
+            },
+            "endpoint_dependencies": [
+                {
+                    "pre_requisite": "POST /2010-04-01/Accounts/{AccountSid}/Messages.json",
+                    "dependent": "GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json",
+                    "reason": "Must dispatch a message first before retrieving its delivery logs."
+                }
+            ],
+            "service_plan": [
+                {
+                    "service_name": "messageService",
+                    "description": "Manages twilio SMS dispatches",
+                    "endpoints": [
+                        "POST /2010-04-01/Accounts/{AccountSid}/Messages.json",
+                        "GET /2010-04-01/Accounts/{AccountSid}/Messages/{Sid}.json"
+                    ]
+                }
+            ],
+            "model_plan": [
+                {
+                    "model_name": "Message",
+                    "description": "Represents an outbound twilio message",
+                    "fields": {
+                        "sid": "string",
+                        "to": "string",
+                        "from": "string",
+                        "body": "string",
+                        "status": "string"
+                    }
+                }
+            ],
+            "configuration_plan": {
+                "api_base_url": "https://api.twilio.com",
+                "default_headers": {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                "timeout_ms": 10000,
+                "cors_required": True
+            },
+            "folder_structure": {
+                "src": {
+                    "api": {
+                        "config": ["apiConfig.js"],
+                        "services": ["messageService.js"],
+                        "models": ["types.ts"]
+                    }
+                }
+            }
+        }
+    else:
+        # Default Blueprint Mock
+        return {
+            "api_name": "Generic REST API",
+            "framework": framework,
+            "resource_groups": [
+                {
+                    "name": "Resources",
+                    "description": "CRUD management endpoints",
+                    "endpoints": [
+                        {"method": "GET", "path": "/api/v1/resources", "description": "Query matching database list"},
+                        {"method": "POST", "path": "/api/v1/resources", "description": "Insert a new item record"}
+                    ]
+                }
+            ],
+            "crud_metadata": [
+                {"method": "GET", "path": "/api/v1/resources", "pattern": "Search/List"},
+                {"method": "POST", "path": "/api/v1/resources", "pattern": "Create"}
+            ],
+            "authentication_plan": {
+                "strategy": "API Key",
+                "login_endpoint": "",
+                "logout_endpoint": "",
+                "refresh_token_endpoint": "",
+                "token_storage_suggestion": "localStorage / Context State",
+                "description": "Supplied inside custom headers: 'X-API-Key: <TOKEN>'."
+            },
+            "endpoint_dependencies": [],
+            "service_plan": [
+                {
+                    "service_name": "resourceService",
+                    "description": "Handles resource model CRUD requests",
+                    "endpoints": ["GET /api/v1/resources", "POST /api/v1/resources"]
+                }
+            ],
+            "model_plan": [
+                {
+                    "model_name": "Resource",
+                    "description": "Generic api data schema",
+                    "fields": {
+                        "id": "string",
+                        "name": "string",
+                        "createdAt": "string"
+                    }
+                }
+            ],
+            "configuration_plan": {
+                "api_base_url": "https://api.example.com",
+                "default_headers": {
+                    "Content-Type": "application/json"
+                },
+                "timeout_ms": 10000,
+                "cors_required": True
+            },
+            "folder_structure": {
+                "src": {
+                    "api": {
+                        "config": ["apiConfig.js"],
+                        "services": ["resourceService.js"],
+                        "models": ["types.ts"]
+                    }
+                }
+            }
+        }
