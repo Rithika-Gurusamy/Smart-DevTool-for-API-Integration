@@ -364,10 +364,18 @@ if generate_btn or analyze_frontend_btn:
                     framework=framework_input
                 )
                 
-                # Store Frontend Blueprint in session state
+                status.update(label="Generating Frontend API Client & Modular Services...", state="running")
+                from frontend_generator import generate_frontend_client_files, generate_frontend_zip
+                frontend_files, total_crud_methods = generate_frontend_client_files(blueprint)
+                frontend_zip_bytes = generate_frontend_zip(blueprint)
+                
+                # Store Frontend Blueprint and generated code in session state
                 st.session_state["workflow_active"] = "frontend_blueprint"
                 st.session_state["frontend_blueprint"] = blueprint
                 st.session_state["framework"] = framework_input
+                st.session_state["frontend_files"] = frontend_files
+                st.session_state["total_crud_methods"] = total_crud_methods
+                st.session_state["frontend_zip_bytes"] = frontend_zip_bytes
                 
             status.update(label="Analysis Completed Successfully!", state="complete")
             st.session_state["result_ready"] = True
@@ -406,50 +414,52 @@ def render_frontend_blueprint_dashboard():
     config_plan = blueprint.get("configuration_plan", {})
     folder_structure = blueprint.get("folder_structure", {})
     
-    total_resources = len(resource_groups)
-    total_crud = len(crud_metadata)
+    total_endpoints = sum(len(group.get('endpoints', [])) for group in resource_groups)
+    total_services = len(service_plan)
+    total_crud_methods = st.session_state.get("total_crud_methods", 0)
     auth_strategy = auth_plan.get("strategy", "None")
     
-    # 4-column Metrics Panel
+    # 4-column Metrics Panel (Requirement 14)
     col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
     with col_meta1:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Language/Framework</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{framework}</div>
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Framework / Library</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{framework} (Axios)</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta2:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Resource Groups</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{total_resources} Groups</div>
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Mapped Specs</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{total_endpoints} Endpoints / {total_services} Services</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta3:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Auth Strategy</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{auth_strategy}</div>
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Auth & CRUD Methods</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{total_crud_methods} Methods ({auth_strategy})</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta4:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Downloadable File</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #fb7185; margin-top: 0.25rem;">frontend_blueprint.json</div>
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Download Package Status</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #fb7185; margin-top: 0.25rem;">Ready</div>
         </div>
         """, unsafe_allow_html=True)
         
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Tabs
-    tab_resources, tab_auth, tab_services, tab_models, tab_config = st.tabs([
+    # 6 Tabs (added tab_code)
+    tab_resources, tab_auth, tab_services, tab_models, tab_config, tab_code = st.tabs([
         "📁 Resource Groups & CRUD",
         "🔒 Authentication Plan",
         "💼 Service & Dependency Plan",
         "💾 Data Models (Schemas)",
-        "🔧 Project Config & Structure"
+        "🔧 Project Config & Structure",
+        "💻 Generated Code Files"
     ])
     
     with tab_resources:
@@ -553,12 +563,45 @@ def render_frontend_blueprint_dashboard():
             tree_text = dict_to_tree(folder_structure)
             st.code(tree_text, language="text")
             
+    with tab_code:
+        st.markdown("### 💻 Generated Frontend Code Preview")
+        st.markdown("Preview the centralized API Client, custom Error utilities, and modular Services.")
+        
+        frontend_files = st.session_state.get("frontend_files", {})
+        if frontend_files:
+            file_options = list(frontend_files.keys())
+            selected_file = st.selectbox("Select file to preview:", file_options, key="select_frontend_file")
+            if selected_file:
+                code_content = frontend_files[selected_file]
+                lang = "javascript"
+                if selected_file.endswith(".md"):
+                    lang = "markdown"
+                st.code(code_content, language=lang)
+        else:
+            st.info("No generated files found. Run the Frontend Integration flow first.")
+            
     st.divider()
-    # Download JSON
-    blueprint_json = json.dumps(blueprint, indent=2)
-    b64_blueprint = base64.b64encode(blueprint_json.encode()).decode()
-    href_blueprint = f'<a href="data:file/txt;base64,{b64_blueprint}" download="frontend_blueprint.json" class="download-btn">📥 Download frontend_blueprint.json</a>'
-    st.markdown(href_blueprint, unsafe_allow_html=True)
+    # Download Actions (Requirement 13 & 14)
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            label="📥 Download frontend-api-client.zip",
+            data=st.session_state.get("frontend_zip_bytes", b""),
+            file_name="frontend-api-client.zip",
+            mime="application/zip",
+            key="dl_frontend_zip",
+            use_container_width=True
+        )
+    with col_dl2:
+        blueprint_json = json.dumps(blueprint, indent=2)
+        st.download_button(
+            label="📄 Download frontend_blueprint.json",
+            data=blueprint_json,
+            file_name="frontend_blueprint.json",
+            mime="application/json",
+            key="dl_frontend_json",
+            use_container_width=True
+        )
 
 # Display outputs if generation is complete
 if st.session_state.get("result_ready"):
