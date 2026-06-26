@@ -377,6 +377,12 @@ if generate_btn or analyze_frontend_btn:
                 st.session_state["total_crud_methods"] = total_crud_methods
                 st.session_state["frontend_zip_bytes"] = frontend_zip_bytes
                 
+                # Model statistics
+                st.session_state["total_entities"] = len(blueprint.get("model_plan", []))
+                st.session_state["total_requests"] = len([f for f in frontend_files.keys() if "Request.js" in f])
+                st.session_state["total_responses"] = len([f for f in frontend_files.keys() if "Response.js" in f])
+                st.session_state["total_models"] = st.session_state["total_entities"] + st.session_state["total_requests"] + st.session_state["total_responses"]
+                
             status.update(label="Analysis Completed Successfully!", state="complete")
             st.session_state["result_ready"] = True
 
@@ -525,26 +531,67 @@ def render_frontend_blueprint_dashboard():
             st.info("No explicit endpoint dependencies identified.")
             
     with tab_models:
-        st.markdown("### Planned Data Models (Schemas)")
-        st.markdown("Reusable frontend data entities derived from API schemas.")
+        st.markdown("### 📦 Frontend Models & Configuration Dashboard")
+        st.markdown("Metrics and previews for the generated data models, configurations, constants, and environment setups.")
         
-        for model in model_plan:
-            st.markdown(f"#### 💾 Model: `{model.get('model_name', 'UnnamedModel')}`")
-            st.markdown(f"*{model.get('description', '')}*")
+        total_entities = st.session_state.get("total_entities", 0)
+        total_requests = st.session_state.get("total_requests", 0)
+        total_responses = st.session_state.get("total_responses", 0)
+        total_models = st.session_state.get("total_models", 0)
+        
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        with col_m1:
+            st.metric("Total Generated Models", f"{total_models} Files")
+        with col_m2:
+            st.metric("Request Payload Models", f"{total_requests} Files")
+        with col_m3:
+            st.metric("Response Models", f"{total_responses} Files")
+        with col_m4:
+            st.metric("Constants & Configs", "3 Files")
             
-            fields = model.get("fields", {})
-            if fields:
-                field_rows = []
-                for field_name, field_type in fields.items():
-                    field_rows.append(f"| `{field_name}` | `{field_type}` |")
-                st.markdown("\n".join([
-                    "| Field Name | Type |",
-                    "|---|---|",
-                    *field_rows
-                ]))
+        st.divider()
+        st.markdown("#### 🔍 Asset Previews")
+        
+        frontend_files = st.session_state.get("frontend_files", {})
+        
+        with st.expander("📄 Centralized API Configuration Module (apiConfig.js)"):
+            config_code = frontend_files.get("src/api/config/apiConfig.js", "Not generated")
+            st.code(config_code, language="javascript")
+            
+        with st.expander("📄 Centralized Constants & Routes (apiRoutes.js)"):
+            routes_code = frontend_files.get("src/api/constants/apiRoutes.js", "Not generated")
+            st.code(routes_code, language="javascript")
+            
+        with st.expander("📄 Environment Configuration Template (.env.example)"):
+            env_code = frontend_files.get(".env.example", "Not generated")
+            st.code(env_code, language="ini")
+            
+        with st.expander("📄 Core Entity Models"):
+            entity_files = [f for f in frontend_files.keys() if f.startswith("src/api/models/") and "Request" not in f and "Response" not in f]
+            if entity_files:
+                for ef in entity_files:
+                    st.markdown(f"**File:** `{ef}`")
+                    st.code(frontend_files[ef], language="javascript")
             else:
-                st.info("No fields specified for this model.")
-            st.markdown("---")
+                st.info("No core entity models found.")
+                
+        with st.expander("📄 Request Payload Models"):
+            req_files = [f for f in frontend_files.keys() if f.startswith("src/api/models/") and "Request" in f]
+            if req_files:
+                for rf in req_files:
+                    st.markdown(f"**File:** `{rf}`")
+                    st.code(frontend_files[rf], language="javascript")
+            else:
+                st.info("No request payload models found.")
+                
+        with st.expander("📄 Response Models"):
+            resp_files = [f for f in frontend_files.keys() if f.startswith("src/api/models/") and "Response" in f]
+            if resp_files:
+                for rf in resp_files:
+                    st.markdown(f"**File:** `{rf}`")
+                    st.code(frontend_files[rf], language="javascript")
+            else:
+                st.info("No response models found.")
             
     with tab_config:
         st.markdown("### Configuration & Project Structure")
