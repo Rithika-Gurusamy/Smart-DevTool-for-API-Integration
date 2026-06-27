@@ -7,6 +7,8 @@ from analyzer import analyze_api_docs, analyze_frontend_integration
 from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram, generate_rest_integration
 from spec_parser import detect_and_parse_spec, SpecParserError
 from generators import LANGUAGE_STACKS, validate_compatibility
+from diff_engine import OpenAPIDiffEngine, generate_markdown_report, generate_pdf_report
+import yaml
 
 # Page configuration
 st.set_page_config(
@@ -153,45 +155,308 @@ def select_preset(url, use_case, lang):
     st.session_state["lang_input"] = lang
     st.session_state["doc_source_selection"] = "Documentation URL"
 
+# Initialize default button values to prevent NameError
+generate_btn = False
+analyze_frontend_btn = False
+
 # Sidebar controls
 st.sidebar.markdown("### 🛠️ Controller")
-st.sidebar.markdown("Use presets below to instantly test standard workflows:")
 
-col_pre1, col_pre2 = st.sidebar.columns(2)
-with col_pre1:
-    if st.button("Stripe Payments", use_container_width=True):
-        select_preset(
-            url="https://api.stripe.com/docs",
-            use_case="I want to create a checkout customer payment system with billing support",
-            lang="Python"
-        )
-    if st.button("Twilio SMS Alert", use_container_width=True):
-        select_preset(
-            url="https://www.twilio.com/docs/usage/api",
-            use_case="Send transactional SMS verification codes to users",
-            lang="JavaScript"
-        )
-with col_pre2:
-    if st.button("OpenAI Chat Completion", use_container_width=True):
-        select_preset(
-            url="https://platform.openai.com/docs/api-reference",
-            use_case="Generate completions for conversational chatbots",
-            lang="Python"
-        )
-    if st.button("Clear Inputs", use_container_width=True):
-        select_preset("", "", "Python")
+workflow_mode = st.sidebar.selectbox(
+    "Select Workflow Mode:",
+    ["API Integration Builder", "API Evolution Analyzer"],
+    index=0
+)
+
+if workflow_mode == "API Integration Builder":
+    st.sidebar.markdown("Use presets below to instantly test standard workflows:")
+    
+    col_pre1, col_pre2 = st.sidebar.columns(2)
+    with col_pre1:
+        if st.button("Stripe Payments", use_container_width=True):
+            select_preset(
+                url="https://api.stripe.com/docs",
+                use_case="I want to create a checkout customer payment system with billing support",
+                lang="Python"
+            )
+        if st.button("Twilio SMS Alert", use_container_width=True):
+            select_preset(
+                url="https://www.twilio.com/docs/usage/api",
+                use_case="Send transactional SMS verification codes to users",
+                lang="JavaScript"
+            )
+    with col_pre2:
+        if st.button("OpenAI Chat Completion", use_container_width=True):
+            select_preset(
+                url="https://platform.openai.com/docs/api-reference",
+                use_case="Generate completions for conversational chatbots",
+                lang="Python"
+            )
+        if st.button("Clear Inputs", use_container_width=True):
+            select_preset("", "", "Python")
 
 st.sidebar.divider()
 st.sidebar.markdown("""
 ### 🧠 Engine Info
 - **AI Backend**: Gemini 2.5 Flash
 - **Features Enabled**:
-  - HTML DOM Fetcher
-  - Knowledge Base Fallback
-  - Custom Class Generator
-  - Postman Collection Generator
-  - Mermaid Sequence Generator
+  - HTML DOM Diff & Analysis
+  - Pluggable Target Stacks
+  - API Evolution Analyzer
+  - ReportLab PDF Exporter
 """)
+
+# Main Forms Columns
+def render_api_evolution_dashboard():
+    report = st.session_state.get("diff_report", {})
+    if not report:
+        st.warning("No diff report available. Please run the comparison first.")
+        return
+        
+    st.divider()
+    st.markdown("### 🔄 API Evolution & Breaking Change Dashboard")
+    st.markdown("This dashboard visualizes structural changes, compatibility ratings, and client migration actions.")
+    
+    score = report.get("compatibility_score", 100)
+    metrics = report.get("metrics", {})
+    changes = report.get("changes", [])
+    
+    # Compatibility rating description
+    if score >= 90:
+        score_color = "#10b981" # Green
+        rating_desc = "Highly Compatible"
+    elif score >= 70:
+        score_color = "#f59e0b" # Orange/Yellow
+        rating_desc = "Minor Breaking Changes"
+    else:
+        score_color = "#ef4444" # Red
+        rating_desc = "Significant Breaking Changes"
+        
+    # Metrics columns
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    with m_col1:
+        st.markdown(f"""
+        <div class="custom-card" style="border-top: 4px solid {score_color};">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Compatibility Score</small>
+            <div style="font-size: 1.8rem; font-weight: 700; color: {score_color}; margin-top: 0.25rem;">{score}%</div>
+            <small style="color: #94a3b8;">{rating_desc}</small>
+        </div>
+        """, unsafe_allow_html=True)
+    with m_col2:
+        st.markdown(f"""
+        <div class="custom-card" style="border-top: 4px solid #ef4444;">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Breaking Changes</small>
+            <div style="font-size: 1.8rem; font-weight: 700; color: #ef4444; margin-top: 0.25rem;">{metrics.get("breaking_changes", 0)}</div>
+            <small style="color: #94a3b8;">Requires immediate actions</small>
+        </div>
+        """, unsafe_allow_html=True)
+    with m_col3:
+        st.markdown(f"""
+        <div class="custom-card" style="border-top: 4px solid #f59e0b;">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Warnings</small>
+            <div style="font-size: 1.8rem; font-weight: 700; color: #f59e0b; margin-top: 0.25rem;">{metrics.get("warnings", 0)}</div>
+            <small style="color: #94a3b8;">Potential upgrade issues</small>
+        </div>
+        """, unsafe_allow_html=True)
+    with m_col4:
+        st.markdown(f"""
+        <div class="custom-card" style="border-top: 4px solid #10b981;">
+            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Safe Changes</small>
+            <div style="font-size: 1.8rem; font-weight: 700; color: #10b981; margin-top: 0.25rem;">{metrics.get("safe_changes", 0)}</div>
+            <small style="color: #94a3b8;">Backward compatible additions</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Tabs layout
+    tab_summary, tab_detailed, tab_visual, tab_downloads = st.tabs([
+        "📄 Executive Summary & Risks",
+        "🔍 Detailed Changes Registry",
+        "📊 Change Visualization",
+        "📥 Download Reports"
+    ])
+    
+    with tab_summary:
+        st.markdown("#### Executive Summary")
+        st.write(report.get("executive_summary", "No summary generated."))
+        
+        st.markdown("#### ⚠️ Top Upgrade Risks")
+        for risk in report.get("upgrade_risks", []):
+            st.markdown(f"- **{risk}**")
+            
+    with tab_detailed:
+        st.markdown("#### Detailed Changes List")
+        if not changes:
+            st.info("No structural changes detected between the specifications.")
+        else:
+            for idx, c in enumerate(changes, 1):
+                sev = c.get("classification", "Safe")
+                if sev == "Breaking":
+                    badge_color = "#ef4444"
+                    icon = "🔴"
+                elif sev == "Warning":
+                    badge_color = "#f59e0b"
+                    icon = "🟡"
+                else:
+                    badge_color = "#10b981"
+                    icon = "🟢"
+                    
+                st.markdown(f"""
+                <div style="background-color: #161b22; border-left: 4px solid {badge_color}; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span class="badge-auth" style="background-color: {badge_color}; color: white; border: none; padding: 0.1rem 0.5rem; font-size: 0.8rem;">{sev.upper()}</span>
+                            <span style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-left: 0.5rem;">
+                                {c.get('method', '')} {c.get('path', '')}
+                            </span>
+                        </div>
+                        <small style="color: #94a3b8; font-weight: bold;">{c.get('change_category')}</small>
+                    </div>
+                    <p style="margin: 0.8rem 0 0.4rem 0; color: #cbd5e1; font-weight: 500;">{c.get('description')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.expander("🛠️ Impact & Recommended Action"):
+                    st.write(f"**Frontend Integration Impact:** {c.get('frontend_impact')}")
+                    st.write(f"**External SDK & REST Impact:** {c.get('sdk_impact')}")
+                    st.success(f"**Recommended Action:** {c.get('recommended_action')}")
+                    
+    with tab_visual:
+        st.markdown("#### Structural Differences Summary")
+        
+        # Categorize by structural section
+        added_eps = [c for c in changes if c.get("change_category") == "Endpoint Added"]
+        removed_eps = [c for c in changes if c.get("change_category") == "Endpoint Removed"]
+        modified_eps = [c for c in changes if c.get("change_category") in ["Endpoint Path/Method Changed", "HTTP Method Changed"]]
+        
+        request_changes = [c for c in changes if "request" in c.get("change_category", "").lower() or "parameter" in c.get("change_category", "").lower()]
+        response_changes = [c for c in changes if "response" in c.get("change_category", "").lower() or "status code" in c.get("change_category", "").lower()]
+        auth_changes = [c for c in changes if "authentication" in c.get("change_category", "").lower()]
+        
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.markdown("##### 📁 Endpoints Evolution")
+            st.write(f"- **Endpoints Added:** `{len(added_eps)}`")
+            st.write(f"- **Endpoints Removed:** `{len(removed_eps)}`")
+            st.write(f"- **Endpoints Modified:** `{len(modified_eps)}`")
+        with col_v2:
+            st.markdown("##### ⚙️ Schemas & Authentication")
+            st.write(f"- **Authentication Changes:** `{len(auth_changes)}`")
+            st.write(f"- **Request Changes:** `{len(request_changes)}`")
+            st.write(f"- **Response Changes:** `{len(response_changes)}`")
+            
+    with tab_downloads:
+        st.markdown("#### Export Evolution Reports")
+        st.markdown("Download and share evolution reports with your development team.")
+        
+        md_content = generate_markdown_report(report)
+        json_content = json.dumps(report, indent=2)
+        pdf_content = generate_pdf_report(report)
+        
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        with col_dl1:
+            st.download_button(
+                label="📥 Download Markdown Report (.md)",
+                data=md_content,
+                file_name="breaking_changes_report.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
+        with col_dl2:
+            st.download_button(
+                label="📥 Download JSON Diff Report (.json)",
+                data=json_content,
+                file_name="breaking_changes_report.json",
+                mime="application/json",
+                use_container_width=True
+            )
+        with col_dl3:
+            st.download_button(
+                label="📥 Download PDF Report (.pdf)",
+                data=pdf_content,
+                file_name="breaking_changes_report.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+def render_api_evolution_workflow():
+    st.markdown("### 🔄 API Evolution Analyzer")
+    st.markdown("""
+    Compare two versions of an OpenAPI or Swagger specification (JSON/YAML) to analyze structural differences, 
+    classify breaking changes, and evaluate downstream impact on frontend integration and SDK wrappers.
+    """)
+    
+    col_v1, col_v2 = st.columns(2)
+    with col_v1:
+        st.markdown("#### 📂 Previous API Specification (V1)")
+        old_spec_file = st.file_uploader(
+            "Upload Previous Spec File:",
+            type=['json', 'yaml', 'yml'],
+            key="old_spec_uploader_unique"
+        )
+    with col_v2:
+        st.markdown("#### 📂 Updated API Specification (V2)")
+        new_spec_file = st.file_uploader(
+            "Upload Updated Spec File:",
+            type=['json', 'yaml', 'yml'],
+            key="new_spec_uploader_unique"
+        )
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    compare_btn = st.button("🔍 Compare Specs & Analyze Evolution", type="primary", use_container_width=True)
+    
+    if compare_btn:
+        if old_spec_file is None or new_spec_file is None:
+            st.error("❌ Please upload both version files (V1 and V2) to run the analysis.")
+        else:
+            with st.status("🔄 Running API Evolution Diff & Breaking Change Analysis...", expanded=True) as status:
+                try:
+                    # 1. Read files
+                    status.update(label="Reading specification file contents...", state="running")
+                    old_content = old_spec_file.read().decode("utf-8")
+                    new_content = new_spec_file.read().decode("utf-8")
+                    
+                    # 2. Parse using spec_parser
+                    status.update(label="Normalizing previous specification...", state="running")
+                    old_parsed = detect_and_parse_spec(old_content)
+                    
+                    status.update(label="Normalizing updated specification...", state="running")
+                    new_parsed = detect_and_parse_spec(new_content)
+                    
+                    # 3. Load raw structures
+                    status.update(label="Decoding raw components structures...", state="running")
+                    try:
+                        old_raw = json.loads(old_content)
+                    except json.JSONDecodeError:
+                        old_raw = yaml.safe_load(old_content) or {}
+                        
+                    try:
+                        new_raw = json.loads(new_content)
+                    except json.JSONDecodeError:
+                        new_raw = yaml.safe_load(new_content) or {}
+                        
+                    # 4. Compare specs
+                    status.update(label="Analyzing structural changes and classifying severity...", state="running")
+                    engine = OpenAPIDiffEngine(old_parsed, new_parsed, old_raw, new_raw, api_key=api_key)
+                    diff_report = engine.compare()
+                    
+                    # Store results in session state
+                    st.session_state["diff_report"] = diff_report
+                    st.session_state["diff_ready"] = True
+                    
+                    status.update(label="API Evolution Analysis Completed Successfully!", state="complete")
+                except Exception as e:
+                    status.update(label=f"Analysis failed: {str(e)}", state="error")
+                    st.error(f"❌ Error during comparison: {str(e)}")
+                    
+    # Render dashboard if ready
+    if st.session_state.get("diff_ready"):
+        render_api_evolution_dashboard()
+
+if workflow_mode == "API Evolution Analyzer":
+    render_api_evolution_workflow()
+    st.stop()
 
 # Main Forms Columns
 col_form, col_meta = st.columns([2, 1])
