@@ -10,6 +10,8 @@ from generators import LANGUAGE_STACKS, validate_compatibility
 from diff_engine import OpenAPIDiffEngine, generate_markdown_report, generate_pdf_report
 import yaml
 
+api_key = os.getenv("GEMINI_API_KEY")
+
 # Page configuration
 st.set_page_config(
     page_title="Smart DevTool | SDK & Postman Builder",
@@ -32,6 +34,108 @@ st.markdown("""
     .stApp {
         background-color: #0d1117;
         color: #c9d1d9;
+    }
+    
+    /* Style the sidebar to match the premium dark theme */
+    section[data-testid="stSidebar"], 
+    [data-testid="stSidebar"] > div, 
+    [data-testid="stSidebar"] {
+        background-color: #0f172a !important;
+        border-right: 1px solid #1e293b !important;
+    }
+    
+    /* Global labels and widget headers to be white and readable */
+    label, 
+    [data-testid="stWidgetLabel"] p,
+    .stWidgetLabel {
+        color: #ffffff !important;
+        font-weight: 500 !important;
+        opacity: 1 !important;
+    }
+    
+    /* Style the radio button options to be readable and white */
+    [data-testid="stRadio"] label,
+    [data-testid="stRadio"] label p,
+    [data-testid="stRadio"] div[role="radiogroup"] label {
+        color: #ffffff !important;
+    }
+    
+    /* Ensure all text and lists inside the dark sidebar are white */
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] li,
+    [data-testid="stSidebar"] div {
+        color: #ffffff !important;
+    }
+    
+    /* Style dark inputs (Text inputs, Textareas) to have dark backgrounds and white text */
+    .stTextInput input, 
+    .stTextArea textarea {
+        background-color: #161b22 !important;
+        color: #ffffff !important;
+        border: 1px solid #30363d !important;
+        border-radius: 6px !important;
+    }
+    
+    /* Make placeholders inside dark inputs highly visible (light grey) */
+    .stTextInput input::placeholder,
+    .stTextArea textarea::placeholder,
+    input::placeholder,
+    textarea::placeholder {
+        color: #94a3b8 !important;
+        opacity: 0.85 !important;
+    }
+    
+    /* Style white selectboxes (dropdowns): background white, text black */
+    .stSelectbox div[data-baseweb="select"] {
+        background-color: #ffffff !important;
+        border: 1px solid #30363d !important;
+        border-radius: 6px !important;
+    }
+    .stSelectbox div[data-baseweb="select"] div,
+    .stSelectbox div[data-baseweb="select"] span,
+    .stSelectbox div[data-baseweb="select"] svg {
+        color: #000000 !important;
+        fill: #000000 !important;
+    }
+    
+    /* Custom style for the file uploader drop-zone area */
+    [data-testid="stFileUploader"] section {
+        background-color: #161b22 !important;
+        border: 1px dashed #30363d !important;
+    }
+    
+    /* Make all texts inside the uploader (including the uploaded files list) white and clear */
+    [data-testid="stFileUploader"],
+    [data-testid="stFileUploader"] * {
+        color: #ffffff !important;
+    }
+    
+    /* Style the Browse files buttons to be dark slate with white text for readability and consistency */
+    [data-testid="stFileUploader"] button {
+        background-color: #1e293b !important;
+        color: #ffffff !important;
+        border: 1px solid #334155 !important;
+        border-radius: 6px !important;
+        padding: 0.25rem 0.75rem !important;
+    }
+    [data-testid="stFileUploader"] button:hover {
+        background-color: #334155 !important;
+        border-color: #475569 !important;
+    }
+    
+    /* Style the preset buttons inside the sidebar to look premium */
+    [data-testid="stSidebar"] button {
+        background-color: #1e293b !important;
+        color: #ffffff !important;
+        border: 1px solid #334155 !important;
+        border-radius: 6px !important;
+        transition: background-color 0.2s !important;
+    }
+    [data-testid="stSidebar"] button:hover {
+        background-color: #334155 !important;
+        border-color: #475569 !important;
     }
     
     /* Header Container styling */
@@ -196,14 +300,23 @@ if workflow_mode == "API Integration Builder":
             select_preset("", "", "Python")
 
 st.sidebar.divider()
-st.sidebar.markdown("""
-### 🧠 Engine Info
-- **AI Backend**: Gemini 2.5 Flash
-- **Features Enabled**:
-  - HTML DOM Diff & Analysis
-  - Pluggable Target Stacks
-  - API Evolution Analyzer
-  - ReportLab PDF Exporter
+if workflow_mode == "API Integration Builder":
+    st.sidebar.markdown("""
+### 📖 Usage Guide
+Quick steps to build integration wrappers:
+1. **Source**: Provide an API Doc URL or upload a spec file.
+2. **Use Case**: Type a plain-English goal (e.g., *"charge a customer card"*).
+3. **Target**: Choose your programming language & stack.
+4. **Generate**: Click **Generate SDK & REST** to build your custom client package.
+""")
+else:
+    st.sidebar.markdown("""
+### 📖 Usage Guide
+Compare spec versions and inspect breaking changes:
+1. **Input**: Choose to upload files or paste raw API text/JSON examples.
+2. **Versions**: Provide V1 (previous) and V2 (updated) contents.
+3. **Compare**: Click **Compare Specs & Analyze Evolution**.
+4. **Review**: Inspect breaking changes, compatibility score, and generated migration guides.
 """)
 
 # Main Forms Columns
@@ -387,35 +500,84 @@ def render_api_evolution_workflow():
     classify breaking changes, and evaluate downstream impact on frontend integration and SDK wrappers.
     """)
     
-    col_v1, col_v2 = st.columns(2)
-    with col_v1:
-        st.markdown("#### 📂 Previous API Specification (V1)")
-        old_spec_file = st.file_uploader(
-            "Upload Previous Spec File:",
-            type=['json', 'yaml', 'yml'],
-            key="old_spec_uploader_unique"
-        )
-    with col_v2:
-        st.markdown("#### 📂 Updated API Specification (V2)")
-        new_spec_file = st.file_uploader(
-            "Upload Updated Spec File:",
-            type=['json', 'yaml', 'yml'],
-            key="new_spec_uploader_unique"
-        )
+    input_method = st.radio(
+        "Select Input Method:",
+        ["📁 Upload Specification / Documentation Files", "✍️ Paste Raw API Content / JSON Examples"],
+        horizontal=True,
+        key="api_evo_input_method"
+    )
+    
+    old_content = ""
+    new_content = ""
+    old_spec_file = None
+    new_spec_file = None
+    old_spec_text = ""
+    new_spec_text = ""
+    
+    if "Upload Specification" in input_method:
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.markdown("#### 📂 Previous API Specification (V1)")
+            old_spec_file = st.file_uploader(
+                "Upload Previous Spec File:",
+                type=['json', 'yaml', 'yml', 'txt', 'md'],
+                key="old_spec_uploader_unique"
+            )
+        with col_v2:
+            st.markdown("#### 📂 Updated API Specification (V2)")
+            new_spec_file = st.file_uploader(
+                "Upload Updated Spec File:",
+                type=['json', 'yaml', 'yml', 'txt', 'md'],
+                key="new_spec_uploader_unique"
+            )
+    else:
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.markdown("#### 📝 Paste Previous API Spec / Docs / Examples (V1)")
+            old_spec_text = st.text_area(
+                "Paste V1 Content Here:",
+                height=300,
+                placeholder="Paste raw JSON, YAML, Postman collection, curl requests, or raw markdown documentation...",
+                key="old_spec_text_unique"
+            )
+        with col_v2:
+            st.markdown("#### 📝 Paste Updated API Spec / Docs / Examples (V2)")
+            new_spec_text = st.text_area(
+                "Paste V2 Content Here:",
+                height=300,
+                placeholder="Paste updated raw JSON, YAML, Postman collection, curl requests, or raw markdown documentation...",
+                key="new_spec_text_unique"
+            )
         
     st.markdown("<br>", unsafe_allow_html=True)
     compare_btn = st.button("🔍 Compare Specs & Analyze Evolution", type="primary", use_container_width=True)
     
     if compare_btn:
-        if old_spec_file is None or new_spec_file is None:
-            st.error("❌ Please upload both version files (V1 and V2) to run the analysis.")
+        has_v1 = False
+        has_v2 = False
+        
+        if "Upload Specification" in input_method:
+            if old_spec_file is not None:
+                has_v1 = True
+                old_content = old_spec_file.read().decode("utf-8")
+            if new_spec_file is not None:
+                has_v2 = True
+                new_content = new_spec_file.read().decode("utf-8")
+        else:
+            if old_spec_text.strip():
+                has_v1 = True
+                old_content = old_spec_text
+            if new_spec_text.strip():
+                has_v2 = True
+                new_content = new_spec_text
+                
+        if not has_v1 or not has_v2:
+            st.error("❌ Please supply V1 and V2 API inputs to run the analysis.")
         else:
             with st.status("🔄 Running API Evolution Diff & Breaking Change Analysis...", expanded=True) as status:
                 try:
-                    # 1. Read files
-                    status.update(label="Reading specification file contents...", state="running")
-                    old_content = old_spec_file.read().decode("utf-8")
-                    new_content = new_spec_file.read().decode("utf-8")
+                    # 1. Read / Load contents
+                    status.update(label="Reading specification contents...", state="running")
                     
                     # 2. Parse using spec_parser
                     status.update(label="Normalizing previous specification...", state="running")

@@ -1,5 +1,23 @@
 import json
 import yaml
+import os
+import importlib
+from dotenv import load_dotenv
+
+# Try to import Gemini
+try:
+    genai = importlib.import_module("google.generativeai")
+    HAS_GEMINI = True
+except ImportError:
+    genai = None
+    HAS_GEMINI = False
+
+load_dotenv()
+api_key = os.getenv("GEMINI_API_KEY")
+model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+if api_key and HAS_GEMINI:
+    genai.configure(api_key=api_key)
 
 class SpecParserError(Exception):
     pass
@@ -359,38 +377,319 @@ class SwaggerParser(BaseSpecParser):
             "authentication": authentication
         }
 
+class PostmanCollectionParser(BaseSpecParser):
+    def detect_type_and_version(self) -> tuple:
+        info_obj = self.raw_data.get("info", {})
+        schema_url = info_obj.get("schema", "")
+        if "postman" in schema_url.lower() or "item" in self.raw_data:
+            return "postman", "2.1.0"
+        return "unknown", ""
+        
+    def parse(self) -> dict:
+        info = self.raw_data.get("info", {})
+        title = info.get("name", "Postman Collection")
+        description = info.get("description", "")
+        version = "1.0.0"
+        
+        metadata = {
+            "title": title,
+            "description": description,
+            "version": version,
+            "base_urls": ["/"]
+        }
+        
+        endpoints = []
+        authentication = []
+        
+        # Traverse items recursively
+        self._parse_items(self.raw_data.get("item", []), endpoints)
+        
+        # Extract basic auth if defined at collection level
+        auth_data = self.raw_data.get("auth")
+        if isinstance(auth_data, dict):
+            auth_type = auth_data.get("type", "")
+            authentication.append({
+                "name": "CollectionAuth",
+                "type": auth_type,
+                "in": "header"
+            })
+            
+        return {
+            "spec_type": "postman",
+            "spec_version": "2.1.0",
+            "metadata": metadata,
+            "endpoints": endpoints,
+            "authentication": authentication
+        }
+        
+    def _parse_items(self, items: list, endpoints: list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if "item" in item:
+                # Folder: recurse
+                self._parse_items(item["item"], endpoints)
+            elif "request" in item:
+                req = item["request"]
+                name = item.get("name", "")
+                desc = req.get("description", "")
+                method = req.get("method", "GET").upper()
+                
+                # Parse URL
+                url_data = req.get("url", "")
+                path = "/"
+                query_params = []
+                
+                if isinstance(url_data, dict):
+                    # Path list to string path
+                    path_parts = url_data.get("path", [])
+                    if isinstance(path_parts, list):
+                        path = "/" + "/".join([str(p) for p in path_parts])
+                    elif isinstance(path_parts, str):
+                        path = path_parts
+                        
+                    # Query params
+                    for q in url_data.get("query", []):
+                        if isinstance(q, dict):
+                            query_params.append({
+                                "name": q.get("key", ""),
+                                "in": "query",
+                                "type": "string",
+                                "required": not q.get("disabled", False),
+                                "description": q.get("description", "")
+                            })
+                elif isinstance(url_data, str):
+                    path = url_data
+                    
+                # Headers
+                headers = []
+                for h in req.get("header", []):
+                    if isinstance(h, dict):
+                        headers.append({
+                            "name": h.get("key", ""),
+                            "in": "header",
+                            "type": "string",
+                            "required": not h.get("disabled", False),
+                            "description": h.get("description", "")
+                        })
+                        
+                parameters = query_params + headers
+                
+                # Request Body
+                request_body_schema = None
+                body_data = req.get("body", {})
+                if isinstance(body_data, dict) and body_data.get("mode") == "raw":
+                    raw_body = body_data.get("raw", "")
+                    try:
+                        # Try to parse raw body as json to extract schema structure
+                        parsed_json = json.loads(raw_body)
+                        schema = self._json_to_schema(parsed_json)
+                        request_body_schema = {
+                            "media_type": "application/json",
+                            "schema": schema
+                        }
+                    except Exception:
+                        request_body_schema = {
+                            "media_type": "application/json",
+                            "schema": {"type": "string", "example": raw_body}
+                        }
+                        
+                endpoints.append({
+                    "path": path,
+                    "method": method,
+                    "summary": name,
+                    "description": desc,
+                    "tags": [],
+                    "operation_id": "",
+                    "parameters": parameters,
+                    "request_body_schema": request_body_schema,
+                    "responses": {}
+                })
+                
+    def _json_to_schema(self, data) -> dict:
+        if isinstance(data, dict):
+            properties = {}
+            required = []
+            for k, v in data.items():
+                properties[k] = self._json_to_schema(v)
+                required.append(k)
+            return {
+                "type": "object",
+                "properties": properties,
+                "required": required
+            }
+        elif isinstance(data, list):
+            item_schema = {"type": "string"}
+            if data:
+                item_schema = self._json_to_schema(data[0])
+            return {
+                "type": "array",
+                "items": item_schema
+            }
+        elif isinstance(data, bool):
+            return {"type": "boolean"}
+        elif isinstance(data, (int, float)):
+            return {"type": "number"}
+        return {"type": "string"}
+
+class LLMSpecParser:
+    def __init__(self, raw_content: str, api_key: str = None):
+        self.raw_content = raw_content
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        
+    def parse(self) -> dict:
+        if not self.api_key or not HAS_GEMINI:
+            return self._fallback_empty()
+            
+        prompt = f"""
+You are an expert API Architect and Specification Parser. Your task is to analyze the following unstructured content (which could be raw API documentation, markdown text, code snippets, example HTTP requests and responses, or sample JSON payloads) and convert it into a normalized API specification JSON object.
+
+Unstructured Content:
+---
+{self.raw_content}
+---
+
+You MUST parse this content and extract all API endpoints, parameters, schemas, and authentication methods. 
+Return your response as a valid JSON object matching the following structure:
+{{
+    "spec_type": "normalized_raw_text",
+    "spec_version": "1.0.0",
+    "metadata": {{
+        "title": "API Title (extract from content or generate a suitable name)",
+        "description": "Brief description of the API",
+        "version": "1.0.0",
+        "base_urls": ["Extract base URL or default to ['/']"]
+    }},
+    "endpoints": [
+        {{
+            "path": "/endpoint/path",
+            "method": "GET or POST or PUT or DELETE",
+            "summary": "Short endpoint summary",
+            "description": "Detailed description of the endpoint",
+            "tags": ["Resource tag"],
+            "operation_id": "createSomething",
+            "parameters": [
+                {{
+                    "name": "param_name",
+                    "in": "query or path or header",
+                    "type": "string or integer or number or boolean",
+                    "required": true,
+                    "description": "Parameter explanation"
+                }}
+            ],
+            "request_body_schema": {{
+                "media_type": "application/json",
+                "schema": {{
+                    "type": "object",
+                    "properties": {{
+                        "field_name": {{"type": "string"}}
+                    }},
+                    "required": ["field_name"]
+                }}
+            }},
+            "responses": {{
+                "200": {{
+                    "description": "Success response",
+                    "schema_ref": "object"
+                }}
+            }}
+        }}
+    ],
+    "authentication": [
+        {{
+            "name": "AuthSchemeName",
+            "type": "apiKey or http or oauth2",
+            "in": "header or query"
+        }}
+    ]
+}}
+
+Return ONLY the raw JSON object. Do not include markdown wraps (like ```json), HTML tags, or any introductory text. Just the JSON object.
+"""
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            
+            # Clean markdown wraps
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+            
+            parsed = json.loads(text)
+            return parsed
+        except Exception as e:
+            print(f"LLM specification parsing failed: {str(e)}")
+            return self._fallback_empty()
+            
+    def _fallback_empty(self) -> dict:
+        return {
+            "spec_type": "unparsed_text",
+            "spec_version": "1.0.0",
+            "metadata": {
+                "title": "Unparsed Content",
+                "description": "Could not extract specification structurally.",
+                "version": "1.0.0",
+                "base_urls": ["/"]
+            },
+            "endpoints": [],
+            "authentication": []
+        }
+
 def detect_and_parse_spec(file_content: str) -> dict:
     """
     Parses file content (JSON or YAML) and automatically detects and normalizes
-    OpenAPI 3.x or Swagger 2.0 specifications.
+    OpenAPI 3.x, Swagger 2.0, Postman collections, or uses LLM parsing for raw text.
     Returns the normalized spec dictionary.
     """
+    # 1. First, try to parse as JSON or YAML
+    data = None
     try:
         data = json.loads(file_content)
     except json.JSONDecodeError:
         try:
             data = yaml.safe_load(file_content)
-        except Exception as e:
-            raise SpecParserError(f"File is not valid JSON or YAML: {str(e)}")
+        except Exception:
+            pass # Keep data = None
             
-    if not isinstance(data, dict):
-        raise SpecParserError("Parsed specification is not a dictionary/object.")
-        
-    if "openapi" in data:
-        version = str(data["openapi"])
-        if version.startswith("3."):
-            parser = OpenAPIParser(data)
+    # 2. If it is a dictionary, check for native structures
+    if isinstance(data, dict):
+        if "openapi" in data:
+            version = str(data["openapi"])
+            if version.startswith("3."):
+                parser = OpenAPIParser(data)
+                return parser.parse()
+            else:
+                raise SpecParserError(f"Unsupported OpenAPI version: {version}. Only OpenAPI 3.x is supported.")
+                
+        elif "swagger" in data:
+            version = str(data["swagger"])
+            if version == "2.0":
+                parser = SwaggerParser(data)
+                return parser.parse()
+            else:
+                raise SpecParserError(f"Unsupported Swagger version: {version}. Only Swagger 2.0 is supported.")
+                
+        # 3. Check for Postman Collection signature
+        info_obj = data.get("info", {})
+        schema_url = info_obj.get("schema", "") if isinstance(info_obj, dict) else ""
+        if "postman" in schema_url.lower() or "item" in data:
+            parser = PostmanCollectionParser(data)
             return parser.parse()
-        else:
-            raise SpecParserError(f"Unsupported OpenAPI version: {version}. Only OpenAPI 3.x is supported.")
             
-    elif "swagger" in data:
-        version = str(data["swagger"])
-        if version == "2.0":
-            parser = SwaggerParser(data)
-            return parser.parse()
-        else:
-            raise SpecParserError(f"Unsupported Swagger version: {version}. Only Swagger 2.0 is supported.")
+    # 4. If it's not a dictionary or native parsing failed, check if we can parse it using the LLM
+    if api_key and HAS_GEMINI:
+        parser = LLMSpecParser(file_content, api_key=api_key)
+        parsed = parser.parse()
+        if parsed.get("endpoints"):
+            return parsed
             
+    # 5. Offline fallback or error
+    if isinstance(data, dict):
+        raise SpecParserError("Could not detect any OpenAPI, Swagger, or Postman specification signature in the file.")
     else:
-        raise SpecParserError("Could not detect any OpenAPI or Swagger specification signature in the file.")
+        raise SpecParserError("File is not valid JSON/YAML spec, and Gemini API is not configured for raw text parsing.")
