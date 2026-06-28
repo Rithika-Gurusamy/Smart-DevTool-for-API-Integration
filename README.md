@@ -80,9 +80,8 @@ Use this workflow to compare two versions of an API and analyze the downstream i
 
 ## 📐 System Architecture
 
-*(A detailed system architecture diagram illustrating the parser, analysis, generation, and diff pipelines will be inserted here)*
+![Uploading image.png…]()
 
-![System Architecture](docs/architecture.png)
 
 ---
 
