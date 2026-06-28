@@ -90,6 +90,8 @@ Use this workflow to compare two versions of an API and analyze the downstream i
 
 ```
 .
+├── .gitignore                  # Git configuration file to exclude local files and environments
+├── README.md                   # Project documentation and developer setup guide
 ├── app.py                      # Streamlit dashboard and UI orchestration layer
 ├── spec_parser.py              # Ingests and normalizes OpenAPI, Swagger, Postman, and raw text API inputs
 ├── analyzer.py                 # Handles LLM-powered route ranking and frontend blueprint planning
@@ -99,12 +101,6 @@ Use this workflow to compare two versions of an API and analyze the downstream i
 ├── parser.py                   # Utilities for scraping web documentation and extracting file texts
 ├── requirements.txt            # Python dependencies configuration file
 ├── generators/                 # Submodule containing language-specific class generators and validators
-├── test_specs/                 # Ignored folder containing local mock spec, Postman, and raw text files for testing
-│   ├── ecom_api_v1.json        # Mock e-commerce API specification (Version 1)
-│   ├── ecom_api_v2.json        # Mock e-commerce API specification (Version 2)
-│   ├── postman_collection.json # Mock Postman Collection JSON payload
-│   ├── raw_payload_v1.txt      # Example request/response raw text for V1
-│   └── raw_payload_v2.txt      # Example request/response raw text for V2
 └── scratch/                    # Test suites folder
     ├── test_diff_engine.py     # Automated test suite validating comparison classifications and reports
     ├── test_target_stacks.py   # Automated test suite validating stack configuration compatibility
