@@ -234,11 +234,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Sidebar controls (moved up so workflow_mode is available for the header)
+st.sidebar.markdown("### 🛠️ Controller")
+workflow_mode = st.sidebar.selectbox(
+    "Select Workflow Mode:",
+    ["API Integration Builder", "API Evolution Analyzer"],
+    index=0
+)
+
 # Application Header
-st.markdown("""
+if workflow_mode == "API Integration Builder":
+    subtitle = "Instantly transform any API Documentation URL or Specification into custom client SDK wrappers, Postman Collections, and Sequence Diagrams."
+else:
+    subtitle = "Compare API specifications, Postman Collections, or raw HTTP payloads to detect breaking changes and generate developer migration guides."
+
+st.markdown(f"""
 <div class="header-container">
     <div class="header-title">⚡ Smart DevTool</div>
-    <div class="header-subtitle">Instantly transform any API Documentation URL & Use Case into custom client SDK wrappers, Postman Collections, and Sequence Diagrams.</div>
+    <div class="header-subtitle">{subtitle}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -262,15 +275,6 @@ def select_preset(url, use_case, lang):
 # Initialize default button values to prevent NameError
 generate_btn = False
 analyze_frontend_btn = False
-
-# Sidebar controls
-st.sidebar.markdown("### 🛠️ Controller")
-
-workflow_mode = st.sidebar.selectbox(
-    "Select Workflow Mode:",
-    ["API Integration Builder", "API Evolution Analyzer"],
-    index=0
-)
 
 if workflow_mode == "API Integration Builder":
     st.sidebar.markdown("Use presets below to instantly test standard workflows:")
