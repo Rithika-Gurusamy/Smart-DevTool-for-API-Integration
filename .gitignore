@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 .streamlit/
 temp_uploads/
-test_specs/
+# Ignore test_specs contents except backend_api_for_frontend.json
+test_specs/*
+!test_specs/backend_api_for_frontend.json
 
