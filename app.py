@@ -4,9 +4,8 @@ import base64
 import os
 from parser import fetch_docs, save_uploaded_file, extract_text_from_file
 from analyzer import analyze_api_docs, analyze_frontend_integration
-from generator import generate_wrapper, generate_postman_collection, generate_sequence_diagram, generate_rest_integration
+from generator import generate_integration_code, generate_postman_collection, generate_sequence_diagram
 from spec_parser import detect_and_parse_spec, SpecParserError
-from generators import LANGUAGE_STACKS, validate_compatibility
 from diff_engine import OpenAPIDiffEngine, generate_markdown_report, generate_pdf_report
 import yaml
 
@@ -14,7 +13,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 
 # Page configuration
 st.set_page_config(
-    page_title="Smart DevTool | SDK & Postman Builder",
+    page_title="Smart DevTool | API Integration Builder",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -207,13 +206,6 @@ st.markdown("""
         border: 1px solid #30363d !important;
     }
     
-    /* Presets Container */
-    .preset-box {
-        display: flex;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-    }
-    
     /* Download Button styling */
     .download-btn {
         background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
@@ -234,7 +226,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar controls (moved up so workflow_mode is available for the header)
+# Sidebar controls
 st.sidebar.markdown("### 🛠️ Controller")
 workflow_mode = st.sidebar.selectbox(
     "Select Workflow Mode:",
@@ -244,7 +236,7 @@ workflow_mode = st.sidebar.selectbox(
 
 # Application Header
 if workflow_mode == "API Integration Builder":
-    subtitle = "Instantly transform any API Documentation URL or Specification into custom client SDK wrappers, Postman Collections, and Sequence Diagrams."
+    subtitle = "Paste any API Documentation URL or upload a spec file — instantly generate frontend integration code (Fetch or Axios), Postman Collections, and Sequence Diagrams."
 else:
     subtitle = "Compare API specifications, Postman Collections, or raw HTTP payloads to detect breaking changes and generate developer migration guides."
 
@@ -260,16 +252,15 @@ if "url_input" not in st.session_state:
     st.session_state["url_input"] = ""
 if "use_case_input" not in st.session_state:
     st.session_state["use_case_input"] = ""
-if "lang_input" not in st.session_state:
-    st.session_state["lang_input"] = "Python"
+if "output_format" not in st.session_state:
+    st.session_state["output_format"] = "Vanilla JS (Fetch)"
 if "doc_source_selection" not in st.session_state:
     st.session_state["doc_source_selection"] = "Documentation URL"
 
 # Preset triggers
-def select_preset(url, use_case, lang):
+def select_preset(url, use_case):
     st.session_state["url_input"] = url
     st.session_state["use_case_input"] = use_case
-    st.session_state["lang_input"] = lang
     st.session_state["doc_source_selection"] = "Documentation URL"
 
 # Initialize default button values to prevent NameError
@@ -284,34 +275,32 @@ if workflow_mode == "API Integration Builder":
         if st.button("Stripe Payments", use_container_width=True):
             select_preset(
                 url="https://api.stripe.com/docs",
-                use_case="I want to create a checkout customer payment system with billing support",
-                lang="Python"
+                use_case="I want to create a checkout customer payment system with billing support"
             )
         if st.button("Twilio SMS Alert", use_container_width=True):
             select_preset(
                 url="https://www.twilio.com/docs/usage/api",
-                use_case="Send transactional SMS verification codes to users",
-                lang="JavaScript"
+                use_case="Send transactional SMS verification codes to users"
             )
     with col_pre2:
         if st.button("OpenAI Chat Completion", use_container_width=True):
             select_preset(
                 url="https://platform.openai.com/docs/api-reference",
-                use_case="Generate completions for conversational chatbots",
-                lang="Python"
+                use_case="Generate completions for conversational chatbots"
             )
         if st.button("Clear Inputs", use_container_width=True):
-            select_preset("", "", "Python")
+            select_preset("", "")
 
 st.sidebar.divider()
 if workflow_mode == "API Integration Builder":
     st.sidebar.markdown("""
 ### 📖 Usage Guide
-Quick steps to build integration wrappers:
+Quick steps to build frontend API integration code:
 1. **Source**: Provide an API Doc URL or upload a spec file.
 2. **Use Case**: Type a plain-English goal (e.g., *"charge a customer card"*).
-3. **Target**: Choose your programming language & stack.
-4. **Generate**: Click **Generate SDK & REST** to build your custom client package.
+3. **Format**: Choose **Vanilla JS (Fetch)** or **React (Axios)**.
+4. **Generate**: Click **⚡ Generate API Integration Code** to build your frontend client.
+5. **Blueprint**: Click **🔍 Analyze Frontend Integration** for a full architecture blueprint.
 """)
 else:
     st.sidebar.markdown("""
@@ -323,7 +312,9 @@ Compare spec versions and inspect breaking changes:
 4. **Review**: Inspect breaking changes, compatibility score, and generated migration guides.
 """)
 
-# Main Forms Columns
+# ============================================================
+# API Evolution Analyzer Workflow (kept as-is)
+# ============================================================
 def render_api_evolution_dashboard():
     report = st.session_state.get("diff_report", {})
     if not report:
@@ -624,6 +615,10 @@ if workflow_mode == "API Evolution Analyzer":
     render_api_evolution_workflow()
     st.stop()
 
+# ============================================================
+# API Integration Builder Workflow
+# ============================================================
+
 # Main Forms Columns
 col_form, col_meta = st.columns([2, 1])
 
@@ -674,58 +669,34 @@ with col_form:
     )
 
 with col_meta:
-    st.markdown("### ⚙️ Target Options")
+    st.markdown("### ⚙️ Output Options")
     
-    # Target Language Selection
-    lang_options = ["Python", "JavaScript", "TypeScript", "Java", "C#"]
-    lang_val = st.session_state.get("lang_input", "Python")
-    if lang_val not in lang_options:
-        lang_val = "Python"
-        
-    lang_input = st.selectbox(
-        "Target Language:",
-        lang_options,
-        index=lang_options.index(lang_val)
+    # Output Format Selection (simplified: only 2 choices)
+    output_format_options = ["Vanilla JS (Fetch)", "React (Axios)"]
+    output_format = st.selectbox(
+        "Frontend Output Format:",
+        output_format_options,
+        index=output_format_options.index(st.session_state.get("output_format", "Vanilla JS (Fetch)"))
     )
-    st.session_state["lang_input"] = lang_input
+    st.session_state["output_format"] = output_format
     
-    # Target Stack Selection
-    stack_options = LANGUAGE_STACKS.get(lang_input, [])
-    stack_val = st.session_state.get("stack_input", "")
-    if stack_val not in stack_options:
-        stack_val = stack_options[0] if stack_options else ""
-        
-    stack_input = st.selectbox(
-        "Target Stack / Framework:",
-        stack_options,
-        index=stack_options.index(stack_val) if stack_val in stack_options else 0
-    )
-    st.session_state["stack_input"] = stack_input
+    # Show a helpful description based on selection
+    if "Fetch" in output_format:
+        st.info("🌐 Generates clean `fetch()` code — works in any HTML page, no dependencies needed.")
+    else:
+        st.info("⚛️ Generates Axios-based service code — ready to import into any React component.")
     
-    # Validate compatibility
-    is_compatible = validate_compatibility(lang_input, stack_input)
-    is_frontend_compatible = lang_input in ["JavaScript", "TypeScript"] and stack_input in ["Vanilla JavaScript", "React", "Next.js", "Vue", "Angular"]
-    
-    if not is_compatible:
-        st.error("❌ Selected Stack is incompatible with Language.")
-        
     st.markdown("<br>", unsafe_allow_html=True)
     generate_btn = st.button(
-        "⚡ Generate SDK & REST", 
+        "⚡ Generate API Integration Code", 
         use_container_width=True, 
-        type="primary", 
-        disabled=not is_compatible
+        type="primary"
     )
     
-    frontend_help = ""
-    if not is_frontend_compatible:
-        frontend_help = "Frontend Integration is only available for JavaScript/TypeScript frontend frameworks."
-        
     analyze_frontend_btn = st.button(
         "🔍 Analyze Frontend Integration", 
-        use_container_width=True, 
-        disabled=not (is_compatible and is_frontend_compatible),
-        help=frontend_help if not is_frontend_compatible else None
+        use_container_width=True,
+        help="Deep analysis: generates a full frontend architecture blueprint with services, models, folder structure, and auth flow."
     )
 
 # Run Generation Process
@@ -806,32 +777,32 @@ if generate_btn or analyze_frontend_btn:
                     url=source_url,
                     scraped_text=scraped_text,
                     use_case=use_case_input,
-                    language=lang_input
+                    language="JavaScript"  # Always JavaScript since we're generating frontend code
                 )
                 
                 # Step 3: Code Gen
-                status.update(label="Building wrapper class SDK & Postman collection...", state="running")
-                wrapper_code = generate_wrapper(analysis, lang_input, use_case_input, stack_name=stack_input)
-                rest_code = generate_rest_integration(analysis, lang_input, use_case_input, stack_name=stack_input)
+                status.update(label="Generating frontend integration code...", state="running")
+                integration_code = generate_integration_code(analysis, output_format, use_case_input)
                 postman_json = generate_postman_collection(analysis)
-                sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
+                sequence_mermaid = generate_sequence_diagram(analysis, output_format)
                 
-                # Store SDK & REST results in session state
-                st.session_state["workflow_active"] = "sdk_rest"
+                # Store results in session state
+                st.session_state["workflow_active"] = "integration_code"
                 st.session_state["analysis"] = analysis
-                st.session_state["wrapper_code"] = wrapper_code
-                st.session_state["rest_code"] = rest_code
+                st.session_state["integration_code"] = integration_code
                 st.session_state["postman_json"] = postman_json
                 st.session_state["sequence_mermaid"] = sequence_mermaid
-                st.session_state["language"] = lang_input
-                st.session_state["stack_name"] = stack_input
+                st.session_state["output_format"] = output_format
             else:
-                # Step 2: Frontend Analyzer
+                # Frontend Blueprint Analysis
+                # Map output format to framework name for the analyzer
+                framework = "React" if "React" in output_format else "Vanilla JavaScript"
+                
                 status.update(label="Analyzing API and generating Frontend Integration Blueprint...", state="running")
                 blueprint = analyze_frontend_integration(
                     url=source_url,
                     scraped_text=scraped_text,
-                    framework=stack_input
+                    framework=framework
                 )
                 
                 status.update(label="Generating Frontend API Client & Modular Services...", state="running")
@@ -842,7 +813,7 @@ if generate_btn or analyze_frontend_btn:
                 # Store Frontend Blueprint and generated code in session state
                 st.session_state["workflow_active"] = "frontend_blueprint"
                 st.session_state["frontend_blueprint"] = blueprint
-                st.session_state["framework"] = stack_input
+                st.session_state["framework"] = framework
                 st.session_state["frontend_files"] = frontend_files
                 st.session_state["total_crud_methods"] = total_crud_methods
                 st.session_state["frontend_zip_bytes"] = frontend_zip_bytes
@@ -855,6 +826,11 @@ if generate_btn or analyze_frontend_btn:
                 
             status.update(label="Analysis Completed Successfully!", state="complete")
             st.session_state["result_ready"] = True
+
+
+# ============================================================
+# Frontend Blueprint Dashboard (kept as-is)
+# ============================================================
 
 def update_frontend_blueprint():
     blueprint = st.session_state["frontend_blueprint"]
@@ -888,117 +864,6 @@ def dict_to_tree(d, indent=""):
                 tree += dict_to_tree(item, indent)
     return tree
 
-def render_networking_dashboard(auth_strategy, max_retries=3, enable_logging=True):
-    st.markdown("### 🔌 Centralized Networking Pipeline")
-    st.markdown("""
-    This dashboard visualizes the shared networking interceptor pipeline. All outgoing requests 
-    and incoming responses pass through this pipeline to handle authentication, retries, rate limiting, and errors.
-    """)
-
-    # Mermaid Interceptor Chain
-    st.markdown("#### ⛓️ Interceptor Chain Flow")
-    mermaid_code = f"""
-    sequenceDiagram
-        autonumber
-        participant Client as API Client / Service
-        participant Retry as Retry Interceptor (Exponential Backoff & 429)
-        participant Auth as Auth Interceptor (Inject {auth_strategy})
-        participant Log as Logging Interceptor
-        participant Server as Backend Server API
-
-        Client->>Retry: Execute Request
-        Note over Retry: Track attempt count
-        Retry->>Auth: Pass request
-        Note over Auth: Inject Auth Header ({auth_strategy})
-        Auth->>Log: Pass request
-        Note over Log: Log Request details
-        Log->>Server: HTTP Send
-
-        alt Server returns 2xx Success
-            Server-->>Log: HTTP 200 OK
-            Note over Log: Log Success
-            Log-->>Auth: Response Body
-            Auth-->>Retry: Response Body
-            Retry-->>Client: Success Data
-        else Server returns 429 Rate Limit (Retry-After) or Transient Error (502/503/504)
-            Server-->>Log: HTTP Error
-            Log-->>Auth: Error Response
-            Auth-->>Retry: Error Response
-            Note over Retry: Read Retry-After or Backoff delay
-            Note over Retry: Wait & Retry (up to {max_retries} times)
-            Retry->>Auth: Re-execute Request
-        else Server returns other Errors (400, 401, 403, 500)
-            Server-->>Log: HTTP Error
-            Log-->>Auth: Error Response
-            Auth-->>Retry: Error Response
-            Retry-->>Client: Throw Standardized Exception (e.g. AuthenticationError)
-        end
-    """
-    st.markdown(f"```mermaid\n{mermaid_code}\n```")
-
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        st.markdown("#### ⚙️ Resiliency & Policy Settings")
-        st.write(f"- **Max Retry Attempts:** `{max_retries}`")
-        st.write("- **Backoff Policy:** `Exponential Backoff (1s * 2^attempt)`")
-        st.write("- **Rate Limiting Policy:** `Read Retry-After header with dynamic cooldown fallback`")
-        st.write(f"- **Logging Hooks:** `Enabled` (Logging level: `INFO/WARN/ERROR`)")
-    with col_c2:
-        st.markdown("#### 🚫 Standardized Exception Mapping")
-        st.markdown("""
-        | HTTP Status / Event | Standardized Exception | Description |
-        |---|---|---|
-        | **401 / 403** | `AuthenticationError` / `AuthenticationException` | Token invalid, expired, or key missing |
-        | **400 / 422** | `ValidationError` / `ValidationException` | Client-side input validation failure |
-        | **429** | `RateLimitError` / `RateLimitException` | Rate limits exceeded after all retries exhausted |
-        | **5xx** | `ServerError` / `ServerException` | Unhandled backend errors |
-        | **Network Issue** | `NetworkError` / `NetworkException` | DNS, connection dropped, or SSL failure |
-        | **Timeout** | `TimeoutError` / `TimeoutException` | Request execution exceeded max timeout limit |
-        """)
-
-def render_target_stack_dashboard(language, stack_name):
-    st.markdown(f"### 📂 Target Stack Dashboard: {stack_name} ({language})")
-    st.markdown(f"""
-    This dashboard details the specific architecture, conventions, and asset organization 
-    designed for the **{stack_name}** target stack in **{language}**.
-    """)
-    
-    from generators.target_stacks import get_stack_generator
-    try:
-        generator = get_stack_generator(stack_name)
-        folder_structure = generator.get_folder_structure()
-        features = generator.get_framework_features()
-        assets = generator.get_generated_assets()
-    except Exception as e:
-        st.error(f"Failed to load stack generator for '{stack_name}': {str(e)}")
-        return
-        
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### 📂 Recommended Folder Structure")
-        if folder_structure:
-            tree_text = dict_to_tree(folder_structure)
-            st.code(tree_text, language="text")
-        else:
-            st.info("No folder structure defined for this stack.")
-            
-    with col2:
-        st.markdown("#### ⚙️ Framework Features & Conventions")
-        if features:
-            for feat in features:
-                st.markdown(f"- **{feat}**")
-        else:
-            st.info("No specific features declared.")
-            
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### 📄 Planned Output Assets")
-        if assets:
-            for asset in assets:
-                st.markdown(f"- `{asset}`")
-        else:
-            st.info("No assets listed.")
-
 def render_frontend_blueprint_dashboard():
     blueprint = st.session_state.get("frontend_blueprint", {})
     framework = st.session_state.get("framework", "React")
@@ -1021,13 +886,13 @@ def render_frontend_blueprint_dashboard():
     total_crud_methods = st.session_state.get("total_crud_methods", 0)
     auth_strategy = auth_plan.get("strategy", "None")
     
-    # 4-column Metrics Panel (Requirement 14)
+    # 4-column Metrics Panel
     col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
     with col_meta1:
         st.markdown(f"""
         <div class="custom-card">
             <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Framework / Library</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{framework} (Axios)</div>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{framework}</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta2:
@@ -1054,16 +919,14 @@ def render_frontend_blueprint_dashboard():
         
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 7 Tabs (added tab_network)
-    tab_resources, tab_auth, tab_services, tab_models, tab_config, tab_code, tab_network, tab_target = st.tabs([
+    # Tabs for blueprint
+    tab_resources, tab_auth, tab_services, tab_models, tab_config, tab_code = st.tabs([
         "📁 Resource Groups & CRUD",
         "🔒 Authentication Plan",
         "💼 Service & Dependency Plan",
         "💾 Data Models (Schemas)",
         "🔧 Project Config & Structure",
-        "💻 Generated Code Files",
-        "🔌 Networking Pipeline",
-        "📂 Target Stack Dashboard"
+        "💻 Generated Code Files"
     ])
     
     with tab_resources:
@@ -1412,21 +1275,8 @@ def render_frontend_blueprint_dashboard():
         else:
             st.info("No generated files found. Run the Frontend Integration flow first.")
             
-    with tab_network:
-        render_networking_dashboard(
-            auth_strategy=auth_strategy,
-            max_retries=config_plan.get("max_retries", 3),
-            enable_logging=True
-        )
-            
-    with tab_target:
-        render_target_stack_dashboard(
-            language=st.session_state.get("lang_input", "JavaScript"),
-            stack_name=framework
-        )
-            
     st.divider()
-    # Download Actions (Requirement 13 & 14)
+    # Download Actions
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         st.download_button(
@@ -1448,34 +1298,22 @@ def render_frontend_blueprint_dashboard():
             use_container_width=True
         )
 
+
+# ============================================================
 # Display outputs if generation is complete
+# ============================================================
 if st.session_state.get("result_ready"):
-    workflow_active = st.session_state.get("workflow_active", "sdk_rest")
+    workflow_active = st.session_state.get("workflow_active", "integration_code")
     
     if workflow_active == "frontend_blueprint":
         render_frontend_blueprint_dashboard()
         st.stop()
         
     analysis = st.session_state["analysis"]
-    
-    # If target language or stack changes, dynamically regenerate wrappers and REST integration codes
-    if st.session_state.get("language") != lang_input or st.session_state.get("stack_name") != stack_input:
-        with st.spinner("Dynamically updating target stack assets..."):
-            wrapper_code = generate_wrapper(analysis, lang_input, use_case_input, stack_name=stack_input)
-            rest_code = generate_rest_integration(analysis, lang_input, use_case_input, stack_name=stack_input)
-            sequence_mermaid = generate_sequence_diagram(analysis, lang_input)
-            
-            st.session_state["wrapper_code"] = wrapper_code
-            st.session_state["rest_code"] = rest_code
-            st.session_state["sequence_mermaid"] = sequence_mermaid
-            st.session_state["language"] = lang_input
-            st.session_state["stack_name"] = stack_input
-            
-    wrapper_code = st.session_state["wrapper_code"]
-    rest_code = st.session_state.get("rest_code", "")
+    output_format = st.session_state.get("output_format", "Vanilla JS (Fetch)")
+    integration_code = st.session_state.get("integration_code", "")
     postman_json = st.session_state["postman_json"]
     sequence_mermaid = st.session_state["sequence_mermaid"]
-    language = st.session_state["language"]
     
     st.divider()
     
@@ -1502,54 +1340,50 @@ if st.session_state.get("result_ready"):
         """, unsafe_allow_html=True)
         
     with col_meta3:
-        sdk_name = analysis.get("sdk_recommendation", {}).get("name", "")
-        sdk_install = analysis.get("sdk_recommendation", {}).get("install_command", "")
+        format_label = "Vanilla JS (Fetch)" if "Fetch" in output_format else "React (Axios)"
+        format_icon = "🌐" if "Fetch" in output_format else "⚛️"
         st.markdown(f"""
         <div class="custom-card">
-            <h4>📦 Recommended SDK</h4>
-            <code style="background-color: #242c3d; padding: 0.3rem 0.5rem; border-radius: 4px; display: block; margin-top: 0.5rem;">{sdk_install}</code>
+            <h4>{format_icon} Output Format</h4>
+            <div style="font-size: 1.3rem; font-weight: 700; color: #34d399; margin-top: 0.5rem;">{format_label}</div>
         </div>
         """, unsafe_allow_html=True)
 
     # Tabs for developer utility exports
-    tab_code, tab_rest, tab_endpoints, tab_postman, tab_sequence, tab_network, tab_target = st.tabs([
-        "💻 Client Wrapper", 
-        "🌐 REST Integration",
+    tab_code, tab_endpoints, tab_postman, tab_sequence = st.tabs([
+        "🌐 API Integration Code", 
         "🗺️ Endpoint Mapping", 
         "📬 Postman Collection", 
-        "📊 Sequence Diagram",
-        "🔌 Networking Pipeline",
-        "📂 Target Stack Dashboard"
+        "📊 Sequence Diagram"
     ])
     
     with tab_code:
-        st.markdown("### Client Wrapper Class")
-        st.markdown(f"Generated clean client code implementing requested endpoints in `{language}`.")
+        st.markdown("### Frontend API Integration Code")
+        if "Fetch" in output_format:
+            st.markdown("Clean `fetch()` code ready to use in any HTML page or vanilla JavaScript project.")
+        else:
+            st.markdown("Axios-based service code ready to import into any React component.")
         
-        # SDK Summary Panel
-        st.markdown("#### 📊 SDK Summary Panel")
-        from generators.base import BaseSDKGenerator
-        base_gen = BaseSDKGenerator()
-        class_name = base_gen.clean_class_name(analysis.get("api_name", "API"))
-        
+        # Summary Panel
+        st.markdown("#### 📊 Code Summary")
         primary_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Primary"]
         supporting_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Supporting"]
-        num_methods = len(primary_eps) + len(supporting_eps)
+        num_functions = len(primary_eps) + len(supporting_eps)
         auth_type = analysis.get("auth_method", {}).get("type", "API Key")
         
         sum_col1, sum_col2, sum_col3 = st.columns(3)
         with sum_col1:
             st.markdown(f"""
             <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Client Class Name</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{class_name}</div>
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Output Format</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{format_label}</div>
             </div>
             """, unsafe_allow_html=True)
         with sum_col2:
             st.markdown(f"""
             <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Generated Methods</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{num_methods} Methods</div>
+                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Generated Functions</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{num_functions} Functions</div>
             </div>
             """, unsafe_allow_html=True)
         with sum_col3:
@@ -1577,105 +1411,13 @@ if st.session_state.get("result_ready"):
                 st.info("No supporting endpoints detected.")
         st.divider()
         
-        # Determine extension
-        ext = "py"
-        if language.lower() in ["javascript", "typescript"]:
-            ext = "js" if language.lower() == "javascript" else "ts"
-        elif language.lower() == "go":
-            ext = "go"
-        elif language.lower() == "java":
-            ext = "java"
-        elif language.lower() == "c#":
-            ext = "cs"
-            
-        st.code(wrapper_code, language=language.lower())
+        st.code(integration_code, language="javascript")
         
-        # Download button for wrapper file
-        filename = f"{analysis.get('api_name', 'Client').replace(' ', '').lower()}_client.{ext}"
-        b64_code = base64.b64encode(wrapper_code.encode()).decode()
-        href_code = f'<a href="data:file/txt;base64,{b64_code}" download="{filename}" class="download-btn">📥 Download client.{ext}</a>'
+        # Download button
+        filename = f"{analysis.get('api_name', 'api').replace(' ', '').lower()}_integration.js"
+        b64_code = base64.b64encode(integration_code.encode()).decode()
+        href_code = f'<a href="data:file/txt;base64,{b64_code}" download="{filename}" class="download-btn">📥 Download {filename}</a>'
         st.markdown(href_code, unsafe_allow_html=True)
-        
-    with tab_rest:
-        st.markdown("### REST Integration Code")
-        st.markdown(f"Standalone executable requests in `{language}`.")
-        
-        # Determine language specific filename and extension
-        rest_ext = "py"
-        filename_rest = "rest_examples.py"
-        if language.lower() in ["javascript", "typescript"]:
-            rest_ext = "js"
-            filename_rest = "rest_examples.js"
-        elif language.lower() == "go":
-            rest_ext = "go"
-            filename_rest = "rest_examples.go"
-        elif language.lower() == "java":
-            rest_ext = "java"
-            filename_rest = "RestExamples.java"
-        elif language.lower() == "c#":
-            rest_ext = "cs"
-            filename_rest = "RestExamples.cs"
-            
-        # REST Summary Panel
-        st.markdown("#### 📊 REST Summary Panel")
-        primary_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Primary"]
-        supporting_eps = [e for e in analysis.get("endpoints", []) if e.get("category") == "Supporting"]
-        num_requests = len(primary_eps) + len(supporting_eps)
-        auth_type = analysis.get("auth_method", {}).get("type", "API Key")
-        
-        rest_col1, rest_col2, rest_col3, rest_col4 = st.columns(4)
-        with rest_col1:
-            st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Language</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{language}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with rest_col2:
-            st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Total Endpoints</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{num_requests} Endpoints</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with rest_col3:
-            st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Authentication</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{auth_type}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with rest_col4:
-            st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Downloadable File</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #fb7185; margin-top: 0.25rem;">{filename_rest}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        list_rest_col1, list_rest_col2 = st.columns(2)
-        with list_rest_col1:
-            st.markdown("##### 🔴 Included Primary Endpoints")
-            if primary_eps:
-                for ep in primary_eps:
-                    st.markdown(f"- `{ep['method']}` `{ep['path']}`")
-            else:
-                st.info("No primary endpoints included.")
-        with list_rest_col2:
-            st.markdown("##### 🔵 Included Supporting Endpoints")
-            if supporting_eps:
-                for ep in supporting_eps:
-                    st.markdown(f"- `{ep['method']}` `{ep['path']}`")
-            else:
-                st.info("No supporting endpoints included.")
-        st.divider()
-
-        st.code(rest_code, language=language.lower())
-        
-        # Download button for rest examples
-        b64_rest = base64.b64encode(rest_code.encode()).decode()
-        href_rest = f'<a href="data:file/txt;base64,{b64_rest}" download="{filename_rest}" class="download-btn">📥 Download {filename_rest}</a>'
-        st.markdown(href_rest, unsafe_allow_html=True)
         
     with tab_endpoints:
         st.markdown("### 🏆 Endpoint Relevance Ranking")
@@ -1767,7 +1509,7 @@ if st.session_state.get("result_ready"):
         
     with tab_sequence:
         st.markdown("### Sequence Diagram")
-        st.markdown("Execution flow of the developer's request mapping through the client wrapper:")
+        st.markdown("Execution flow of the developer's request mapping through the integration code:")
         
         # Direct Mermaid support
         st.markdown(f"```mermaid\n{sequence_mermaid}\n```")
@@ -1775,18 +1517,3 @@ if st.session_state.get("result_ready"):
         st.markdown("---")
         st.markdown("#### Raw Diagram Markup")
         st.code(sequence_mermaid, language="mermaid")
-        
-    with tab_network:
-        auth_info = analysis.get("auth_method", {})
-        auth_type = auth_info.get("type", "API Key")
-        render_networking_dashboard(
-            auth_strategy=auth_type,
-            max_retries=3,
-            enable_logging=True
-        )
-        
-    with tab_target:
-        render_target_stack_dashboard(
-            language=language,
-            stack_name=st.session_state.get("stack_name", "Generic Python")
-        )
