@@ -19,11 +19,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom High-Fidelity CSS
+# Custom White, Grey & Blue Clean CSS
 st.markdown("""
 <style>
     /* Global styles */
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Outfit', sans-serif;
@@ -31,154 +31,206 @@ st.markdown("""
     
     /* Main Background */
     .stApp {
-        background-color: #0d1117;
-        color: #c9d1d9;
+        background-color: #f8fafc;
+        color: #1e293b;
     }
     
-    /* Style the sidebar to match the premium dark theme */
+    /* Headings */
+    h1, h2, h3, h4, h5, h6 {
+        color: #0f172a !important;
+        font-weight: 600;
+    }
+    
+    /* Clean white Sidebar */
     section[data-testid="stSidebar"], 
     [data-testid="stSidebar"] > div, 
     [data-testid="stSidebar"] {
-        background-color: #0f172a !important;
-        border-right: 1px solid #1e293b !important;
+        background-color: #ffffff !important;
+        border-right: 1px solid #e2e8f0 !important;
     }
     
-    /* Global labels and widget headers to be white and readable */
-    label, 
-    [data-testid="stWidgetLabel"] p,
-    .stWidgetLabel {
-        color: #ffffff !important;
-        font-weight: 500 !important;
-        opacity: 1 !important;
-    }
-    
-    /* Style the radio button options to be readable and white */
-    [data-testid="stRadio"] label,
-    [data-testid="stRadio"] label p,
-    [data-testid="stRadio"] div[role="radiogroup"] label {
-        color: #ffffff !important;
-    }
-    
-    /* Ensure all text and lists inside the dark sidebar are white */
+    /* Sidebar text, headers, and labels */
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span,
     [data-testid="stSidebar"] li,
-    [data-testid="stSidebar"] div {
-        color: #ffffff !important;
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        color: #334155 !important;
     }
     
-    /* Style dark inputs (Text inputs, Textareas) to have dark backgrounds and white text */
+    /* Global labels and widget headers */
+    label, 
+    [data-testid="stWidgetLabel"] p,
+    .stWidgetLabel {
+        color: #1e293b !important;
+        font-weight: 600 !important;
+        opacity: 1 !important;
+    }
+    
+    /* Radio button options */
+    [data-testid="stRadio"] label,
+    [data-testid="stRadio"] label p,
+    [data-testid="stRadio"] div[role="radiogroup"] label {
+        color: #1e293b !important;
+    }
+    
+    /* Clean inputs (Text inputs, Textareas) */
     .stTextInput input, 
     .stTextArea textarea {
-        background-color: #161b22 !important;
-        color: #ffffff !important;
-        border: 1px solid #30363d !important;
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
     }
+    .stTextInput input:focus, 
+    .stTextArea textarea:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+    }
     
-    /* Make placeholders inside dark inputs highly visible (light grey) */
+    /* Placeholders */
     .stTextInput input::placeholder,
     .stTextArea textarea::placeholder,
     input::placeholder,
     textarea::placeholder {
         color: #94a3b8 !important;
-        opacity: 0.85 !important;
+        opacity: 1 !important;
     }
     
-    /* Style white selectboxes (dropdowns): background white, text black */
+    /* Selectboxes (dropdowns) */
     .stSelectbox div[data-baseweb="select"] {
         background-color: #ffffff !important;
-        border: 1px solid #30363d !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
     }
     .stSelectbox div[data-baseweb="select"] div,
     .stSelectbox div[data-baseweb="select"] span,
     .stSelectbox div[data-baseweb="select"] svg {
-        color: #000000 !important;
-        fill: #000000 !important;
+        color: #0f172a !important;
+        fill: #0f172a !important;
     }
     
-    /* Custom style for the file uploader drop-zone area */
+    /* File uploader drop-zone */
     [data-testid="stFileUploader"] section {
-        background-color: #161b22 !important;
-        border: 1px dashed #30363d !important;
+        background-color: #ffffff !important;
+        border: 2px dashed #cbd5e1 !important;
+        border-radius: 8px !important;
     }
-    
-    /* Make all texts inside the uploader (including the uploaded files list) white and clear */
     [data-testid="stFileUploader"],
     [data-testid="stFileUploader"] * {
-        color: #ffffff !important;
+        color: #334155 !important;
     }
-    
-    /* Style the Browse files buttons to be dark slate with white text for readability and consistency */
     [data-testid="stFileUploader"] button {
-        background-color: #1e293b !important;
-        color: #ffffff !important;
-        border: 1px solid #334155 !important;
+        background-color: #f1f5f9 !important;
+        color: #1e293b !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
         padding: 0.25rem 0.75rem !important;
     }
     [data-testid="stFileUploader"] button:hover {
-        background-color: #334155 !important;
-        border-color: #475569 !important;
+        background-color: #e2e8f0 !important;
+        border-color: #94a3b8 !important;
     }
     
-    /* Style the preset buttons inside the sidebar to look premium */
+    /* Preset buttons inside sidebar */
     [data-testid="stSidebar"] button {
-        background-color: #1e293b !important;
-        color: #ffffff !important;
-        border: 1px solid #334155 !important;
+        background-color: #f8fafc !important;
+        color: #334155 !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 6px !important;
-        transition: background-color 0.2s !important;
+        font-weight: 500 !important;
+        transition: all 0.15s ease !important;
     }
     [data-testid="stSidebar"] button:hover {
-        background-color: #334155 !important;
-        border-color: #475569 !important;
+        background-color: #eff6ff !important;
+        border-color: #93c5fd !important;
+        color: #1d4ed8 !important;
     }
     
-    /* Header Container styling */
+    /* Primary buttons */
+    button[kind="primary"], .stButton > button[kind="primary"] {
+        background-color: #2563eb !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    }
+    button[kind="primary"]:hover, .stButton > button[kind="primary"]:hover {
+        background-color: #1d4ed8 !important;
+    }
+    
+    /* Secondary standard buttons */
+    .stButton > button {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+    }
+    .stButton > button:hover {
+        background-color: #f1f5f9 !important;
+        border-color: #94a3b8 !important;
+        color: #0f172a !important;
+    }
+    
+    /* Tabs styling */
+    button[data-baseweb="tab"] {
+        color: #64748b !important;
+        font-weight: 500 !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #2563eb !important;
+        font-weight: 600 !important;
+        border-bottom-color: #2563eb !important;
+    }
+    
+    /* Header Container styling - Clean white card with blue accent */
     .header-container {
-        padding: 1.5rem;
-        background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
-        border-radius: 12px;
-        border: 1px solid #312e81;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        padding: 1.5rem 1.75rem;
+        background-color: #ffffff;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        border-left: 5px solid #2563eb;
+        margin-bottom: 1.75rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
     
     .header-title {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         font-weight: 700;
-        background: linear-gradient(to right, #818cf8, #c084fc);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
+        color: #0f172a;
+        margin-bottom: 0.25rem;
     }
     
     .header-subtitle {
-        font-size: 1.1rem;
-        color: #94a3b8;
+        font-size: 1rem;
+        color: #64748b;
+        line-height: 1.5;
     }
     
-    /* Card Styles */
+    /* Card Styles - Simple white and grey */
     .custom-card {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 10px;
-        padding: 1.5rem;
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1.25rem;
         margin-bottom: 1rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        color: #1e293b;
     }
     
     .badge-auth {
-        background-color: #312e81;
-        color: #c084fc;
+        background-color: #eff6ff;
+        color: #1d4ed8;
         padding: 0.2rem 0.6rem;
-        border-radius: 6px;
+        border-radius: 4px;
         font-weight: 600;
-        font-size: 0.9rem;
-        border: 1px solid #4f46e5;
+        font-size: 0.85rem;
+        border: 1px solid #bfdbfe;
         display: inline-block;
     }
     
@@ -194,22 +246,22 @@ st.markdown("""
         text-align: center;
     }
     
-    .method-get { background-color: #0e7490; }
-    .method-post { background-color: #1d4ed8; }
-    .method-put { background-color: #b45309; }
-    .method-delete { background-color: #b91c1c; }
-    .method-patch { background-color: #6d28d9; }
+    .method-get { background-color: #0284c7; }
+    .method-post { background-color: #16a34a; }
+    .method-put { background-color: #d97706; }
+    .method-delete { background-color: #dc2626; }
+    .method-patch { background-color: #7c3aed; }
     
     /* Code container block styling */
     .stCodeBlock {
-        border-radius: 8px !important;
-        border: 1px solid #30363d !important;
+        border-radius: 6px !important;
+        border: 1px solid #e2e8f0 !important;
     }
     
-    /* Download Button styling */
+    /* Download Button styling - Clean solid blue */
     .download-btn {
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        color: white !important;
+        background-color: #2563eb;
+        color: #ffffff !important;
         padding: 0.5rem 1.2rem;
         border-radius: 6px;
         font-weight: 600;
@@ -217,11 +269,11 @@ st.markdown("""
         display: inline-block;
         margin-top: 1rem;
         border: none;
-        box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
-        transition: opacity 0.2s;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        transition: background-color 0.2s;
     }
     .download-btn:hover {
-        opacity: 0.9;
+        background-color: #1d4ed8;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -411,17 +463,17 @@ def render_api_evolution_dashboard():
                     icon = "🟢"
                     
                 st.markdown(f"""
-                <div style="background-color: #161b22; border-left: 4px solid {badge_color}; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem;">
+                <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid {badge_color}; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <span class="badge-auth" style="background-color: {badge_color}; color: white; border: none; padding: 0.1rem 0.5rem; font-size: 0.8rem;">{sev.upper()}</span>
-                            <span style="font-family: monospace; font-size: 1.1rem; color: #f8fafc; font-weight: bold; margin-left: 0.5rem;">
+                            <span style="font-family: monospace; font-size: 1.1rem; color: #0f172a; font-weight: bold; margin-left: 0.5rem;">
                                 {c.get('method', '')} {c.get('path', '')}
                             </span>
                         </div>
-                        <small style="color: #94a3b8; font-weight: bold;">{c.get('change_category')}</small>
+                        <small style="color: #64748b; font-weight: bold;">{c.get('change_category')}</small>
                     </div>
-                    <p style="margin: 0.8rem 0 0.4rem 0; color: #cbd5e1; font-weight: 500;">{c.get('description')}</p>
+                    <p style="margin: 0.8rem 0 0.4rem 0; color: #475569; font-weight: 500;">{c.get('description')}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -891,29 +943,29 @@ def render_frontend_blueprint_dashboard():
     with col_meta1:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Framework / Library</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{framework}</div>
+            <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Selected Framework / Library</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #2563eb; margin-top: 0.25rem;">{framework}</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta2:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Mapped Specs</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{total_endpoints} Endpoints / {total_services} Services</div>
+            <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Mapped Specs</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #059669; margin-top: 0.25rem;">{total_endpoints} Endpoints / {total_services} Services</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta3:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Auth & CRUD Methods</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{total_crud_methods} Methods ({auth_strategy})</div>
+            <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Auth & CRUD Methods</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #4f46e5; margin-top: 0.25rem;">{total_crud_methods} Methods ({auth_strategy})</div>
         </div>
         """, unsafe_allow_html=True)
     with col_meta4:
         st.markdown(f"""
         <div class="custom-card">
-            <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Download Package Status</small>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #fb7185; margin-top: 0.25rem;">Ready</div>
+            <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Download Package Status</small>
+            <div style="font-size: 1.25rem; font-weight: 700; color: #0284c7; margin-top: 0.25rem;">Ready</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1324,7 +1376,7 @@ if st.session_state.get("result_ready"):
         st.markdown(f"""
         <div class="custom-card">
             <h4>🏷️ Target API</h4>
-            <h2 style="color: #818cf8; margin-top: 0.5rem;">{analysis.get('api_name', 'Custom API')}</h2>
+            <h2 style="color: #2563eb; margin-top: 0.5rem;">{analysis.get('api_name', 'Custom API')}</h2>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1335,7 +1387,7 @@ if st.session_state.get("result_ready"):
         <div class="custom-card">
             <h4>🔑 Authentication</h4>
             <div style="margin-top: 0.5rem; margin-bottom: 0.2rem;"><span class="badge-auth">{auth_type}</span></div>
-            <small style="color: #94a3b8;">{auth_desc}</small>
+            <small style="color: #64748b;">{auth_desc}</small>
         </div>
         """, unsafe_allow_html=True)
         
@@ -1345,7 +1397,7 @@ if st.session_state.get("result_ready"):
         st.markdown(f"""
         <div class="custom-card">
             <h4>{format_icon} Output Format</h4>
-            <div style="font-size: 1.3rem; font-weight: 700; color: #34d399; margin-top: 0.5rem;">{format_label}</div>
+            <div style="font-size: 1.3rem; font-weight: 700; color: #2563eb; margin-top: 0.5rem;">{format_label}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1374,23 +1426,23 @@ if st.session_state.get("result_ready"):
         sum_col1, sum_col2, sum_col3 = st.columns(3)
         with sum_col1:
             st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Output Format</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-top: 0.25rem;">{format_label}</div>
+            <div class="custom-card">
+                <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Output Format</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #2563eb; margin-top: 0.25rem;">{format_label}</div>
             </div>
             """, unsafe_allow_html=True)
         with sum_col2:
             st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Generated Functions</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #34d399; margin-top: 0.25rem;">{num_functions} Functions</div>
+            <div class="custom-card">
+                <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Generated Functions</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #059669; margin-top: 0.25rem;">{num_functions} Functions</div>
             </div>
             """, unsafe_allow_html=True)
         with sum_col3:
             st.markdown(f"""
-            <div style="background-color: #1e293b; padding: 1rem; border-radius: 8px; border: 1px solid #334155; margin-bottom: 1rem;">
-                <small style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Authentication</small>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #a78bfa; margin-top: 0.25rem;">{auth_type}</div>
+            <div class="custom-card">
+                <small style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Authentication</small>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #4f46e5; margin-top: 0.25rem;">{auth_type}</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1470,19 +1522,19 @@ if st.session_state.get("result_ready"):
             elif category == "Irrelevant": cat_color = "#64748b"
             
             st.markdown(f"""
-            <div style="background-color: #161b22; border-left: 4px solid {cat_color}; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem;">
+            <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid {cat_color}; padding: 1rem; border-radius: 0 8px 8px 0; margin-bottom: 0.8rem; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <span class="badge-method {method_class}">{method}</span>
-                        <strong style="font-size: 1.1rem; color: #f8fafc; font-family: monospace;">{path}</strong>
+                        <strong style="font-size: 1.1rem; color: #0f172a; font-family: monospace;">{path}</strong>
                     </div>
                     <div>
-                        <span style="background-color: #242c3d; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: bold; border: 1px solid {cat_color}; color: {cat_color};">
+                        <span style="background-color: #f1f5f9; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: bold; border: 1px solid {cat_color}; color: {cat_color};">
                             {category} | Score: {score}
                         </span>
                     </div>
                 </div>
-                <p style="margin: 0.8rem 0 0.4rem 0; color: #cbd5e1; font-weight: 500;">{desc}</p>
+                <p style="margin: 0.8rem 0 0.4rem 0; color: #475569; font-weight: 500;">{desc}</p>
             </div>
             """, unsafe_allow_html=True)
             
